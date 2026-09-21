@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "H₂S Guard",
+    "slug": "h2s-guard",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow H₂S Guard to access your camera."
+        }
+      ]
+    ],
+    "scheme": "h2sguard"
+  }
+}
