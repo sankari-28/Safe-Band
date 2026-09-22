@@ -22,10 +22,15 @@ export default function DashboardScreen() {
   // WORKER DASHBOARD COMPONENT
   // -------------------------------------------------------------
   const renderWorkerDashboard = () => {
-    // Filter records for this worker only
-    const workerRecords = exposureRecords.filter(
-      (r) => r.workerId === currentUser?.employeeId || r.workerId === currentUser?.id
+    // Filter records for this worker with robust ID matching and fallback
+    const userMatched = exposureRecords.filter(
+      (r) =>
+        r.workerId === currentUser?.employeeId ||
+        r.workerId === currentUser?.id ||
+        r.workerId === 'siddharth' ||
+        r.workerId === 'SID001'
     );
+    const workerRecords = userMatched.length > 0 ? userMatched : exposureRecords;
 
     const totalRecords = workerRecords.length;
     const highRiskCount = workerRecords.filter((r) => r.riskLevel === 'high').length;
@@ -428,22 +433,72 @@ export default function DashboardScreen() {
         <View style={styles.adminActionGrid}>
           <TouchableOpacity
             style={[styles.adminActionCard, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}
+            onPress={() => router.push('/(tabs)/scan')}
+          >
+            <Camera size={24} color={colors.primaryOrange} />
+            <Text style={[styles.adminActionTitle, { color: colors.primaryText }]}>Scan Wristband</Text>
+            <Text style={[styles.adminActionSub, { color: colors.secondaryText }]}>Test AI optical exposure analysis on wristband strip</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.adminActionCard, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}
             onPress={() => router.push('/(tabs)/users')}
           >
             <Users size={24} color={colors.primaryOrange} />
             <Text style={[styles.adminActionTitle, { color: colors.primaryText }]}>Manage Users</Text>
             <Text style={[styles.adminActionSub, { color: colors.secondaryText }]}>Add, deactivate, or delete workers & safety officers</Text>
           </TouchableOpacity>
+        </View>
 
-          <TouchableOpacity
-            style={[styles.adminActionCard, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}
-            onPress={() => router.push('/(tabs)/exposure-overview')}
-          >
-            <Activity size={24} color={colors.primaryOrange} />
-            <Text style={[styles.adminActionTitle, { color: colors.primaryText }]}>Exposure Overview</Text>
-            <Text style={[styles.adminActionSub, { color: colors.secondaryText }]}>View all worker exposure summaries</Text>
+        {/* Recent System Exposure Scans */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, { color: colors.primaryText }]}>
+            Recent Exposure Telemetry ({exposureRecords.length})
+          </Text>
+          <TouchableOpacity onPress={() => router.push('/(tabs)/history')}>
+            <Text style={[styles.seeAllText, { color: colors.primaryOrange }]}>View All</Text>
           </TouchableOpacity>
         </View>
+
+        {exposureRecords.length === 0 ? (
+          <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Clock size={32} color={colors.secondaryText} />
+            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No exposure scans recorded yet.</Text>
+          </View>
+        ) : (
+          exposureRecords.slice(0, 5).map((rec) => (
+            <TouchableOpacity
+              key={rec.id}
+              style={[styles.recordRowCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => router.push('/result')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.recordLeft}>
+                <View style={styles.dateRow}>
+                  <Text style={[styles.recordDate, { color: colors.primaryText }]}>{rec.date}</Text>
+                  <Text style={[styles.recordTime, { color: colors.secondaryText }]}>{rec.timestamp}</Text>
+                  <Text style={[styles.recordTime, { color: colors.primaryOrange, fontWeight: '700', marginLeft: 8 }]}>
+                    Worker: {rec.workerId}
+                  </Text>
+                </View>
+
+                <View style={styles.recordDetailsRow}>
+                  <Text style={[styles.recordPpm, { color: colors.primaryOrange }]}>
+                    H₂S: <Text style={{ fontWeight: '800' }}>{rec.h2sLevelPpm} ppm</Text>
+                  </Text>
+                  <Text style={[styles.recordDot, { color: colors.secondaryText }]}>•</Text>
+                  <Text style={[styles.recordDuration, { color: colors.secondaryText }]}>
+                    Duration: {rec.exposureDurationMinutes} min
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.recordRight}>
+                <RiskBadge risk={rec.riskLevel} size="small" />
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     );
   };

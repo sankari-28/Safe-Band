@@ -5,12 +5,12 @@ export const INITIAL_ANALYSIS_STEPS: AnalysisProgressStep[] = [
   { id: 1, title: 'Wristband strip detected', subtitle: 'Locating copper acetate sensing strip ROI', completed: false },
   { id: 2, title: 'Reference scale detected', subtitle: 'Normalizing light exposure & reference color palette', completed: false },
   { id: 3, title: 'Colour features extracted', subtitle: 'Computing OpenCV RGB + HSV + LAB color space delta', completed: false },
-  { id: 4, title: 'H₂S level estimated', subtitle: 'Executing pre-trained XGBoost regression model', completed: false },
+  { id: 4, title: 'H₂S level estimated', subtitle: 'Executing trained Random Forest regression model', completed: false },
 ];
 
 /**
  * Live / Simulated exposure analysis service:
- * Worker Photo -> API Gateway (ai-analysis-service) -> OpenCV Color Extraction -> XGBoost Regression -> H2S ppm result
+ * Worker Photo -> API Gateway (ai-analysis-service) -> OpenCV Color Extraction -> Random Forest Regression -> H2S ppm result
  */
 export const runMockExposureAnalysis = async (
   calculateRisk: (ppm: number) => RiskLevel,
@@ -38,12 +38,25 @@ export const runMockExposureAnalysis = async (
   let simulatedDuration = 18;
   let confidence = 94;
 
+  let riskCategory: string | undefined = undefined;
+  let isMock = true;
+  let sensorStatus: string | undefined = undefined;
+  let retakeRequired = false;
+  let warning: string | undefined = undefined;
+  let message: string | undefined = undefined;
+
   if (imageUri) {
     const apiResult = await api.analyzeImage(imageUri, workerId);
     if (apiResult) {
       simulatedPpm = apiResult.h2sLevel;
       simulatedDuration = apiResult.exposureDuration;
       confidence = apiResult.confidence;
+      riskCategory = apiResult.riskCategory;
+      isMock = apiResult.isMock;
+      sensorStatus = apiResult.sensorStatus;
+      retakeRequired = apiResult.retakeRequired;
+      warning = apiResult.warning || undefined;
+      message = apiResult.message || undefined;
     }
   }
 
@@ -60,6 +73,12 @@ export const runMockExposureAnalysis = async (
     timestamp: timeString,
     date: dateString,
     riskLevel: risk,
+    riskCategory,
+    isMock,
+    sensorStatus,
+    retakeRequired,
+    warning,
+    message,
   };
 };
 

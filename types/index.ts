@@ -57,6 +57,12 @@ export interface ExposureAnalysisResult {
   timestamp: string;
   date: string;
   riskLevel: RiskLevel;
+  riskCategory?: string;
+  isMock?: boolean;
+  sensorStatus?: string;
+  retakeRequired?: boolean;
+  warning?: string;
+  message?: string;
 }
 
 export interface AnalysisProgressStep {

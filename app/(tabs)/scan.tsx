@@ -11,6 +11,7 @@ import { AppHeader } from '../../components/AppHeader';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { SecondaryButton } from '../../components/SecondaryButton';
 import { CameraModal } from '../../components/CameraModal';
+import { LiveCameraViewfinder } from '../../components/LiveCameraViewfinder';
 import { runMockExposureAnalysis, INITIAL_ANALYSIS_STEPS } from '../../services/mockAnalysisService';
 
 export default function ScanScreen() {
@@ -95,20 +96,35 @@ export default function ScanScreen() {
   // -------------------------------------------------------------
   const startAnalysis = async () => {
     setErrorMessage('');
+
+    if (!selectedImage) {
+      setErrorMessage('Please start the camera and capture a photo (or upload a strip image) before analyzing.');
+      return;
+    }
+
     setIsAnalyzing(true);
     setActiveStepIndex(-1);
 
     try {
+      const workerId = currentUser?.employeeId || currentUser?.id || 'SID001';
+      const workerName = currentUser?.name || 'Siddharth (Worker)';
+
       const result = await runMockExposureAnalysis(
         calculateRiskLevel,
-        (stepIndex) => setActiveStepIndex(stepIndex)
+        (stepIndex) => setActiveStepIndex(stepIndex),
+        selectedImage,
+        workerId
       );
 
-      // Save record in context
-      const workerId = currentUser?.employeeId || 'WORKER001';
-      const workerName = currentUser?.name || 'Alex Rivera';
+      // If AI detects missing wristband, empty background, or glare requiring retake
+      if (result.retakeRequired) {
+        setIsAnalyzing(false);
+        setErrorMessage(result.warning || result.message || 'Please align your wristband sensing strip inside the box and take the photo again.');
+        return;
+      }
 
-      addExposureRecord({
+      // Save record in context and persist in MySQL backend via API gateway
+      await addExposureRecord({
         workerId,
         workerName,
         timestamp: result.timestamp,
@@ -116,9 +132,11 @@ export default function ScanScreen() {
         h2sLevelPpm: result.h2sLevel,
         exposureDurationMinutes: result.exposureDuration,
         confidencePercentage: result.confidence,
-        reportGenerated: false,
+        reportGenerated: true,
         imageUri: selectedImage || undefined,
-        notes: selectedImage ? 'User captured/uploaded wristband optical scan.' : 'Mobile camera AI strip scan.',
+        notes: result.isMock
+          ? 'Simulation mode analysis.'
+          : `Live OpenCV + Random Forest AI scan (${result.riskCategory || result.riskLevel}).`,
       });
 
       setLastScanResult(result);
@@ -129,6 +147,7 @@ export default function ScanScreen() {
       }, 500);
     } catch (err) {
       setIsAnalyzing(false);
+      setErrorMessage('Analysis service encountered an unexpected error. Please try again.');
     }
   };
 
@@ -145,67 +164,34 @@ export default function ScanScreen() {
           </View>
         ) : null}
 
-        {/* Camera Viewfinder Frame & Preview Area */}
-        <View style={[styles.viewfinderCard, { backgroundColor: '#0B1120', borderColor: colors.border }]}>
-          <View style={styles.viewfinderHeader}>
-            <View style={styles.liveIndicator}>
-              <View style={[styles.liveDot, { backgroundColor: selectedImage ? colors.successText : colors.primaryOrange }]} />
-              <Text style={styles.liveText}>{selectedImage ? 'IMAGE LOADED' : 'CAMERA READY'}</Text>
-            </View>
+        {/* Live Camera Viewfinder & Alignment HUD */}
+        <LiveCameraViewfinder
+          selectedImage={selectedImage}
+          onImageCaptured={(uri) => {
+            setSelectedImage(uri);
+            setErrorMessage('');
+          }}
+          onClearImage={() => {
+            setSelectedImage(null);
+            setErrorMessage('');
+          }}
+          onRequestNativeCamera={() => setShowCameraModal(true)}
+        />
 
-            <TouchableOpacity
-              style={[styles.guidancePill, { backgroundColor: 'rgba(232, 138, 61, 0.2)' }]}
-              onPress={() => router.push('/guidance')}
-            >
-              <Info size={14} color={colors.primaryOrange} />
-              <Text style={[styles.guidancePillText, { color: colors.primaryOrange }]}>View Guidance</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Target Alignment Overlay & Image Preview Frame */}
-          <View style={styles.targetFrame}>
-            {selectedImage ? (
-              <Image
-                source={{ uri: selectedImage }}
-                style={styles.previewImage}
-                resizeMode="cover"
-              />
-            ) : null}
-
-            {/* Frame corner markers */}
-            <View style={[styles.corner, styles.cornerTL, { borderColor: colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerTR, { borderColor: colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerBL, { borderColor: colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerBR, { borderColor: colors.primaryOrange }]} />
-
-            {/* Inner guide label (shown when no image selected) */}
-            {!selectedImage && (
-              <View style={styles.alignmentGuideCenter}>
-                <Camera size={36} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.guideCenterText}>Align SafeBand Strip & Colour Scale</Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.frameHint}>
-            {selectedImage
-              ? 'Wristband strip image captured successfully. Click "Analyze Exposure" below to process.'
-              : 'Place wristband sensing strip and reference color bar inside the box'}
-          </Text>
-        </View>
-
-        {/* Action Controls for Capture & Upload */}
+        {/* Upload Image Option */}
         <View style={styles.controlRow}>
-          <SecondaryButton
-            title="Capture Image"
-            onPress={handleCaptureImage}
-            disabled={isAnalyzing}
-            icon={<Camera size={18} color={colors.primaryOrange} />}
-            style={{ flex: 1 }}
-          />
+          {Platform.OS !== 'web' && (
+            <SecondaryButton
+              title="Native Camera"
+              onPress={() => setShowCameraModal(true)}
+              disabled={isAnalyzing}
+              icon={<Camera size={18} color={colors.primaryOrange} />}
+              style={{ flex: 1 }}
+            />
+          )}
 
           <SecondaryButton
-            title="Upload Image"
+            title="Upload Photo from Computer"
             onPress={handleUploadImage}
             disabled={isAnalyzing}
             icon={<Upload size={18} color={colors.primaryText} />}
@@ -371,7 +357,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 30,
+    paddingBottom: 40,
+    maxWidth: 960,
+    width: '100%',
+    alignSelf: 'center',
   },
   alertBanner: {
     flexDirection: 'row',

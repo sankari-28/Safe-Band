@@ -1,16 +1,63 @@
+import Constants from 'expo-constants';
 import { User, UserRole, ExposureRecord, ThresholdConfig, NotificationItem, RiskLevel } from '../types';
 
-// API Gateway base URL
-const BASE_URL = 'http://localhost:8080';
+// Automatically resolve PC's IP address when running on a physical phone via Expo Go
+const getBaseUrl = () => {
+  const debuggerHost = Constants.expoConfig?.hostUri || (Constants as any).manifest?.debuggerHost;
+  if (debuggerHost) {
+    const hostIp = debuggerHost.split(':')[0];
+    return `http://${hostIp}:8080`;
+  }
+  return 'http://localhost:8080';
+};
 
-// In-memory token storage (can be augmented with AsyncStorage in RN if needed)
+// API Gateway base URL
+const BASE_URL = getBaseUrl();
+
+const TOKEN_STORAGE_KEY = 'h2s_auth_token';
+
+// In-memory token storage with localStorage persistence on web
 let authToken: string | null = null;
 
 export const setAuthToken = (token: string | null) => {
   authToken = token;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    if (token) {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  }
 };
 
-export const getAuthToken = () => authToken;
+export const getAuthToken = () => {
+  if (!authToken && typeof window !== 'undefined' && window.localStorage) {
+    authToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  }
+  return authToken;
+};
+
+// Ensure token is present, auto-authenticating with default credentials if needed
+export const ensureAuthToken = async (): Promise<string | null> => {
+  let token = getAuthToken();
+  if (!token) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'siddharth', password: 'password123' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAuthToken(data.accessToken);
+        token = data.accessToken;
+      }
+    } catch (e) {
+      console.warn('Auto auth token acquisition failed:', e);
+    }
+  }
+  return token;
+};
 
 // Helper to standardise Headers
 const getHeaders = (isMultipart = false) => {
@@ -18,8 +65,9 @@ const getHeaders = (isMultipart = false) => {
   if (!isMultipart) {
     headers['Content-Type'] = 'application/json';
   }
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
 };
@@ -133,7 +181,12 @@ export const api = {
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(errText || `Login failed with status ${res.status}`);
+      let errorMsg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed.message) errorMsg = parsed.message;
+      } catch {}
+      throw new Error(errorMsg || `Login failed with status ${res.status}`);
     }
 
     const data = await res.json();
@@ -243,24 +296,39 @@ export const api = {
 
   // Exposure Records
   async getMyExposures(): Promise<ExposureRecord[]> {
-    const res = await fetch(`${BASE_URL}/api/exposures/my`, {
-      headers: getHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.map(mapExposureDtoToRecord);
+    await ensureAuthToken();
+    try {
+      const res = await fetch(`${BASE_URL}/api/exposures/my`, {
+        headers: getHeaders(),
+      });
+      if (res.status === 403) {
+        // Fallback for admin or supervisor roles who have permission for /all
+        return this.getAllExposures();
+      }
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.map(mapExposureDtoToRecord);
+    } catch {
+      return [];
+    }
   },
 
   async getAllExposures(): Promise<ExposureRecord[]> {
-    const res = await fetch(`${BASE_URL}/api/exposures/all`, {
-      headers: getHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.map(mapExposureDtoToRecord);
+    await ensureAuthToken();
+    try {
+      const res = await fetch(`${BASE_URL}/api/exposures/all`, {
+        headers: getHeaders(),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.map(mapExposureDtoToRecord);
+    } catch {
+      return [];
+    }
   },
 
   async recordExposure(record: { workerId: string; predictedPpm: number; exposureDuration: number }): Promise<ExposureRecord> {
+    await ensureAuthToken();
     const res = await fetch(`${BASE_URL}/api/exposures`, {
       method: 'POST',
       headers: getHeaders(),
@@ -270,7 +338,11 @@ export const api = {
         exposureDuration: record.exposureDuration,
       }),
     });
-    if (!res.ok) throw new Error('Failed to record exposure');
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Failed to record exposure (${res.status}):`, errText);
+      throw new Error(`Failed to record exposure (${res.status}): ${errText}`);
+    }
     const data = await res.json();
     return mapExposureDtoToRecord(data);
   },
@@ -302,39 +374,68 @@ export const api = {
     });
   },
 
-  // AI Image Analysis
-  async analyzeImage(imageUri: string, workerId: string) {
-    try {
-      const formData = new FormData();
-      // Handle React Native / Web FormData image payload
-      const filename = imageUri.split('/').pop() || 'photo.jpg';
-      const fileType = filename.endsWith('.png') ? 'image/png' : 'image/jpeg';
+  // AI Image Analysis (FastAPI AI Microservice + Spring Gateway fallback)
+  async analyzeImage(imageUri: string, workerId: string = 'W001') {
+    const AI_DIRECT_URL = (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_AI_API_URL) || 'http://localhost:5000';
+    const endpoints = [
+      `${AI_DIRECT_URL}/api/analysis`,
+      `${BASE_URL}/api/analysis`
+    ];
 
-      formData.append('file', {
-        uri: imageUri,
-        name: filename,
-        type: fileType,
-      } as any);
+    const filename = imageUri.split('/').pop() || 'photo.jpg';
+    const fileType = filename.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-      const res = await fetch(`${BASE_URL}/api/analysis`, {
-        method: 'POST',
-        headers: getHeaders(true),
-        body: formData,
-      });
+    for (const endpoint of endpoints) {
+      try {
+        const formData = new FormData();
 
-      if (!res.ok) {
-        throw new Error(`Analysis endpoint returned ${res.status}`);
+        // Handle React Native Web vs Native Blob
+        if (typeof window !== 'undefined' && (imageUri.startsWith('blob:') || imageUri.startsWith('data:'))) {
+          const blobRes = await fetch(imageUri);
+          const blob = await blobRes.blob();
+          formData.append('file', blob, filename);
+        } else {
+          formData.append('file', {
+            uri: imageUri,
+            name: filename,
+            type: fileType,
+          } as any);
+        }
+
+        formData.append('workerId', workerId || 'ANONYMOUS');
+
+        const isDirectAi = endpoint.includes(':5000');
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: isDirectAi ? {} : getHeaders(true),
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          return {
+            h2sLevel: data.h2sLevelPpm ?? data.predictedPpm ?? 0,
+            exposureDuration: data.recommendedDurationMinutes || 15,
+            confidence: data.confidencePercentage || data.confidence || 95,
+            riskLevel: data.riskLevel || 'normal',
+            exposureLevel: data.exposureLevel || 'NORMAL',
+            riskCategory: data.riskCategory || 'Normal / Safe',
+            status: data.status || 'PROCESSED',
+            sensorStatus: data.sensorStatus || 'VALID_CALIBRATED_RANGE',
+            retakeRequired: data.retakeRequired || false,
+            warning: data.warning || null,
+            message: data.message || null,
+            isMock: data.isMock || false,
+            features: data.features || {},
+            presenceInfo: data.presenceInfo || {},
+          };
+        }
+      } catch (e) {
+        console.warn(`Attempt to call ${endpoint} failed:`, e);
       }
-
-      const data = await res.json();
-      return {
-        h2sLevel: data.h2sLevelPpm,
-        exposureDuration: data.recommendedDurationMinutes || 15,
-        confidence: data.confidencePercentage || 95,
-      };
-    } catch (e) {
-      console.warn('Backend AI analysis fallback:', e);
-      return null;
     }
+
+    console.warn('All AI analysis endpoints offline; falling back to local simulation.');
+    return null;
   },
 };

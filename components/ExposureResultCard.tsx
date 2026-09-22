@@ -12,14 +12,17 @@ export const ExposureResultCard: React.FC<ExposureResultCardProps> = ({ result }
   const { colors } = useTheme();
 
   const getRiskTheme = () => {
+    if (result.sensorStatus?.includes('SATURAT')) {
+      return { label: 'Physical Saturation', bg: '#2B1115', text: '#FF4757' };
+    }
     switch (result.riskLevel) {
       case 'high':
         return { label: 'High Risk', bg: colors.softDanger, text: colors.dangerText };
       case 'average':
-        return { label: 'Average Exposure', bg: colors.softWarning, text: colors.warningText };
+        return { label: 'Moderate Exposure', bg: colors.softWarning, text: colors.warningText };
       case 'normal':
       default:
-        return { label: 'Normal Exposure', bg: colors.softSuccess, text: colors.successText };
+        return { label: 'Normal / Safe', bg: colors.softSuccess, text: colors.successText };
     }
   };
 
@@ -70,7 +73,9 @@ export const ExposureResultCard: React.FC<ExposureResultCardProps> = ({ result }
             <CheckCircle size={15} color={colors.successText} />
             <Text style={[styles.gridLabel, { color: colors.secondaryText }]}>Optical Analysis</Text>
           </View>
-          <Text style={[styles.gridValue, { color: colors.primaryText }]}>Calibrated ROI</Text>
+          <Text style={[styles.gridValue, { color: colors.primaryText }]}>
+            {result.isMock ? 'Simulated' : 'Calibrated OpenCV ROI'}
+          </Text>
         </View>
       </View>
 
@@ -85,7 +90,9 @@ export const ExposureResultCard: React.FC<ExposureResultCardProps> = ({ result }
 
         <View style={styles.gridItem}>
           <Text style={[styles.gridLabel, { color: colors.secondaryText, marginTop: 2 }]}>Model Pipeline</Text>
-          <Text style={[styles.gridValue, { color: colors.primaryText }]}>OpenCV + XGBoost</Text>
+          <Text style={[styles.gridValue, { color: colors.primaryText }]}>
+            {result.isMock ? 'Mock Fallback' : 'OpenCV + Random Forest'}
+          </Text>
         </View>
       </View>
     </View>

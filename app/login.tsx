@@ -111,6 +111,51 @@ export default function LoginScreen() {
               loading={isLoading}
               style={{ marginTop: 6 }}
             />
+
+            {/* Quick Fill Demo Profiles */}
+            <View style={[styles.mockBox, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}>
+              <View style={styles.mockHeader}>
+                <KeyRound size={15} color={colors.primaryOrange} />
+                <Text style={[styles.mockTitle, { color: colors.primaryText }]}>Quick Fill Profiles</Text>
+              </View>
+              <View style={styles.mockPillRow}>
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.primaryOrange, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('siddharth', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryOrange }]}>Siddharth</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Admin</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('SID001', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Siddharth</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('S001', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Sarah</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Safety Off.</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('W001', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>John</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

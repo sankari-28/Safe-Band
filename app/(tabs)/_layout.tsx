@@ -58,21 +58,22 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* WORKER SPECIFIC TABS */}
+      {/* SCAN TAB (Available to all roles) */}
       <Tabs.Screen
         name="scan"
         options={{
           title: 'Scan',
-          href: isWorker ? '/(tabs)/scan' : null,
+          href: '/(tabs)/scan',
           tabBarIcon: ({ focused, color }) => renderIcon(Camera, focused, color),
         }}
       />
 
+      {/* HISTORY TAB (Available to all roles) */}
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
-          href: isWorker ? '/(tabs)/history' : null,
+          href: '/(tabs)/history',
           tabBarIcon: ({ focused, color }) => renderIcon(Clock, focused, color),
         }}
       />

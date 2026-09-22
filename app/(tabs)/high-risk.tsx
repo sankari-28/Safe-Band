@@ -74,14 +74,14 @@ export default function HighRiskScreen() {
                   <View style={styles.metricItem}>
                     <Text style={[styles.metricLabel, { color: colors.secondaryText }]}>Latest Level</Text>
                     <Text style={[styles.metricPpm, { color: colors.dangerText }]}>
-                      {item.latestH2sPpm || latestRec?.h2sLevelPpm || 40} ppm
+                      {item.latestH2sPpm ?? latestRec?.h2sLevelPpm ?? 0} ppm
                     </Text>
                   </View>
 
                   <View style={styles.metricItem}>
                     <Text style={[styles.metricLabel, { color: colors.secondaryText }]}>Duration</Text>
                     <Text style={[styles.metricVal, { color: colors.primaryText }]}>
-                      {latestRec?.exposureDurationMinutes || 20} min
+                      {latestRec?.exposureDurationMinutes ?? 0} min
                     </Text>
                   </View>
 

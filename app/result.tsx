@@ -20,20 +20,29 @@ export default function ResultScreen() {
 
   const [reportGeneratedState, setReportGeneratedState] = useState(false);
 
-  // Use last scan result or default mock fallback
-  const result: ExposureAnalysisResult = lastScanResult || {
-    h2sLevel: 12,
-    exposureDuration: 18,
-    confidence: 92,
-    timestamp: '08:45 AM',
-    date: '20 Sep 2026',
+  // Use last scan result, or the latest exposure record from database/API, or zeroed default
+  const latestRec = exposureRecords.find((r) => r.workerId === currentUser?.employeeId || r.workerId === currentUser?.id) || exposureRecords[0];
+
+  const result: ExposureAnalysisResult = lastScanResult || (latestRec ? {
+    h2sLevel: latestRec.h2sLevelPpm,
+    exposureDuration: latestRec.exposureDurationMinutes,
+    confidence: 95,
+    timestamp: latestRec.timestamp,
+    date: latestRec.date,
+    riskLevel: latestRec.riskLevel,
+    sensorStatus: 'VALID_CALIBRATED_RANGE',
+  } : {
+    h2sLevel: 0,
+    exposureDuration: 0,
+    confidence: 0,
+    timestamp: '--:--',
+    date: 'No scans recorded',
     riskLevel: 'normal',
-  };
+  });
 
   const handleGenerateReport = () => {
     setReportGeneratedState(true);
     // Find latest record for current worker and generate report
-    const latestRec = exposureRecords[0];
     if (latestRec) {
       generateReport(latestRec.id);
     }
@@ -101,7 +110,7 @@ export default function ResultScreen() {
 
             <View style={[styles.pipelineStep, { backgroundColor: colors.secondaryBg }]}>
               <BarChart2 size={16} color={colors.primaryOrange} />
-              <Text style={[styles.pipelineText, { color: colors.primaryText }]}>XGBoost Model</Text>
+              <Text style={[styles.pipelineText, { color: colors.primaryText }]}>Random Forest Model</Text>
             </View>
           </View>
 
@@ -120,12 +129,17 @@ export default function ResultScreen() {
           <View style={styles.reportSummaryBox}>
             <View style={styles.reportRow}>
               <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Worker ID:</Text>
-              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.employeeId || 'WORKER001'}</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.employeeId || latestRec?.workerId || 'SID001'}</Text>
+            </View>
+
+            <View style={styles.reportRow}>
+              <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Worker Name:</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.name || latestRec?.workerName || 'Siddharth'}</Text>
             </View>
 
             <View style={styles.reportRow}>
               <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Department:</Text>
-              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.department || 'Production'}</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.department || 'Field Operations'}</Text>
             </View>
 
             <View style={styles.reportRow}>

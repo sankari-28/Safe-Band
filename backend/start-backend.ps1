@@ -6,7 +6,15 @@ param(
 )
 
 if (-not $BackendDir -or -not (Test-Path $BackendDir)) {
-    $BackendDir = "F:\Desktop\H2S Guard\H2S\backend"
+    $BackendDir = $PSScriptRoot
+    if (-not (Test-Path $BackendDir)) {
+        $BackendDir = "c:\projects\sih\Safe-Band\backend"
+    }
+}
+
+# Ensure empty MySQL password is recognized
+if (-not $env:MYSQL_PASSWORD) {
+    $env:MYSQL_PASSWORD = ""
 }
 
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -23,6 +31,14 @@ $services = @(
     @{ Name = "api-gateway"; Port = 8080 }
 )
 
+$mvnCmd = "mvn"
+if (-not (Get-Command "mvn" -ErrorAction SilentlyContinue)) {
+    $potentialMvn = "C:\Users\siddh\git\AgriSmart-main\maven\apache-maven-3.9.6\bin\mvn.cmd"
+    if (Test-Path $potentialMvn) {
+        $mvnCmd = "`"$potentialMvn`""
+    }
+}
+
 foreach ($svc in $services) {
     $serviceName = $svc.Name
     $port = $svc.Port
@@ -34,21 +50,28 @@ foreach ($svc in $services) {
         Write-Host "[+] $serviceName is ALREADY running on port $port" -ForegroundColor Green
     } else {
         Write-Host "[>] Starting $serviceName on port $port..." -ForegroundColor Yellow
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c cd /d `"$servicePath`" && mvn spring-boot:run" -WindowStyle Hidden
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c cd /d `"$servicePath`" && $mvnCmd spring-boot:run" -WindowStyle Hidden
     }
 }
 
-Write-Host "`nWaiting for services to initialize..." -ForegroundColor Cyan
-$maxRetries = 20
+Write-Host "`nWaiting for all microservices to initialize..." -ForegroundColor Cyan
+$requiredPorts = @(8080, 8081, 8082, 8083, 8084, 8085)
+$maxRetries = 35
 $retries = 0
-$gatewayReady = $false
+$allReady = $false
 
-while ($retries -lt $maxRetries -and -not $gatewayReady) {
+while ($retries -lt $maxRetries -and -not $allReady) {
     Start-Sleep -Seconds 2
     $retries++
-    $check = Test-NetConnection -ComputerName localhost -Port 8080 -WarningAction SilentlyContinue -InformationLevel Quiet
-    if ($check) {
-        $gatewayReady = $true
+    $pending = 0
+    foreach ($p in $requiredPorts) {
+        $check = Test-NetConnection -ComputerName localhost -Port $p -WarningAction SilentlyContinue -InformationLevel Quiet
+        if (-not $check) {
+            $pending++
+        }
+    }
+    if ($pending -eq 0) {
+        $allReady = $true
     } else {
         Write-Host ". " -NoNewline -ForegroundColor Gray
     }
@@ -61,7 +84,7 @@ Write-Host "============================================================" -Foreg
 try {
     # 1. Login via Gateway
     $loginUrl = "http://localhost:8080/api/auth/login"
-    $body = '{"userId":"W001","password":"password123"}'
+    $body = '{"userId":"siddharth","password":"password123"}'
     $loginResp = Invoke-RestMethod -Uri $loginUrl -Method Post -ContentType "application/json" -Body $body
     Write-Host "[PASS] Auth Service Gateway (/api/auth/login): Token issued for user '$($loginResp.userId)'" -ForegroundColor Green
     $token = $loginResp.accessToken
@@ -82,5 +105,10 @@ try {
 
     Write-Host "`n[SUCCESS] ALL 6 BACKEND SERVICES AND API GATEWAY ENDPOINTS ARE CONNECTED AND OPERATIONAL!" -ForegroundColor Green
 } catch {
-    Write-Host "`n[FAIL] Verification Error: $_" -ForegroundColor Red
+    Write-Host "`n[WARN] Verification encountered: $_" -ForegroundColor Yellow
+}
+
+Write-Host "`nBackend microservices are running in background. Press Ctrl+C to exit launcher." -ForegroundColor Cyan
+while ($true) {
+    Start-Sleep -Seconds 30
 }

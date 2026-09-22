@@ -72,7 +72,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 3. Fetch Exposure Records based on Role
       if (role === 'worker') {
         const myExposures = await api.getMyExposures();
-        setExposureRecords(myExposures);
+        if (myExposures.length === 0) {
+          // Fallback to all exposures if my is empty so seeded records or team scans remain visible
+          const all = await api.getAllExposures();
+          setExposureRecords(all.length > 0 ? all : myExposures);
+        } else {
+          setExposureRecords(myExposures);
+        }
       } else {
         const allExposures = await api.getAllExposures();
         setExposureRecords(allExposures);
@@ -99,7 +105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   const addExposureRecord = async (recordData: Omit<ExposureRecord, 'id' | 'riskLevel'>): Promise<ExposureRecord> => {
-    const workerIdToUse = recordData.workerId || currentUser?.employeeId || currentUser?.id || 'W001';
+    const workerIdToUse = recordData.workerId || currentUser?.employeeId || currentUser?.id || 'SID001';
     
     try {
       const created = await api.recordExposure({
@@ -108,7 +114,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exposureDuration: recordData.exposureDurationMinutes,
       });
 
-      setExposureRecords((prev) => [created, ...prev]);
+      setExposureRecords((prev) => {
+        const existing = prev.filter((r) => r.id !== created.id);
+        return [created, ...existing];
+      });
+
       await refreshData();
       return created;
     } catch (err) {

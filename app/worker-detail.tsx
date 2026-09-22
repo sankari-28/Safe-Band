@@ -20,21 +20,27 @@ export default function WorkerDetailScreen() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
-  // Find worker user
+  // Find exposure records for this worker by ID param
+  const matchingRecords = exposureRecords.filter(
+    (r) => r.workerId === id
+  );
+  const latestMatchingRec = matchingRecords[0];
+
+  // Find worker user or construct from record/param
   const worker = users.find((u) => u.id === id || u.employeeId === id) || {
-    id: id || 'w-102',
-    name: 'Marcus Vance',
-    employeeId: 'EMP1023',
-    role: 'worker',
-    department: 'Refinery Operation B',
-    status: 'active',
-    currentRiskLevel: 'high',
-    latestH2sPpm: 48,
+    id: id || 'UNKNOWN',
+    name: latestMatchingRec?.workerName || `Worker (${id || 'N/A'})`,
+    employeeId: id || 'N/A',
+    role: 'worker' as const,
+    department: 'Operations',
+    status: 'active' as const,
+    currentRiskLevel: latestMatchingRec?.riskLevel || 'normal',
+    latestH2sPpm: latestMatchingRec?.h2sLevelPpm ?? 0,
   };
 
-  // Find exposure records for this worker
+  // Find all exposure records for this worker
   const records = exposureRecords.filter(
-    (r) => r.workerId === worker.employeeId || r.workerId === worker.id
+    (r) => r.workerId === worker.employeeId || r.workerId === worker.id || (id && r.workerId === id)
   );
 
   const totalPages = Math.ceil(records.length / PAGE_SIZE) || 1;
