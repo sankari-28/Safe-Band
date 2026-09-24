@@ -39,7 +39,7 @@ spring:
             - Path=/api/notifications/**
 
         - id: ai-analysis-service
-          uri: ${AI_SERVICE_URL:http://localhost:8085}
+          uri: ${AI_SERVICE_URL:http://localhost:5000}
           predicates:
             - Path=/api/analysis/**
 

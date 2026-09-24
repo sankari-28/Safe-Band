@@ -8,22 +8,41 @@ import com.h2sguard.userservice.entity.User;
 import com.h2sguard.userservice.exception.BadRequestException;
 import com.h2sguard.userservice.exception.ResourceNotFoundException;
 import com.h2sguard.userservice.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserServiceImpl.class);
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final HttpClient httpClient;
+    private final String authServiceUrl;
 
-    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            @Value("${auth-service.url:http://localhost:8081}") String authServiceUrl) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.authServiceUrl = authServiceUrl;
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .build();
     }
 
     @Override
@@ -48,7 +67,34 @@ public class UserServiceImpl implements UserService {
                 .build();
 
         User savedUser = userRepository.save(user);
+
+        // Synchronize credentials to auth-service so user can log in immediately
+        syncCredentialsToAuthService(request.getUserId(), request.getPassword(), request.getRole().name());
+
         return UserDto.fromEntity(savedUser);
+    }
+
+    private void syncCredentialsToAuthService(String userId, String rawPassword, String role) {
+        try {
+            String payload = String.format(
+                    "{\"userId\":\"%s\",\"password\":\"%s\",\"role\":\"%s\"}",
+                    userId, rawPassword, role
+            );
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(authServiceUrl + "/api/auth/internal/credentials"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload))
+                    .timeout(Duration.ofSeconds(4))
+                    .build();
+            HttpResponse<String> resp = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
+                log.info("Credentials successfully synchronized to auth-service for user: {}", userId);
+            } else {
+                log.warn("Auth-service returned status {} when creating credentials for {}: {}", resp.statusCode(), userId, resp.body());
+            }
+        } catch (Exception e) {
+            log.warn("Could not synchronize credentials to auth-service for user {}: {}", userId, e.getMessage());
+        }
     }
 
     @Override

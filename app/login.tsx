@@ -10,13 +10,19 @@ import { PrimaryButton } from '../components/PrimaryButton';
 
 export default function LoginScreen() {
   const { colors } = useTheme();
-  const { login } = useAuth();
+  const { login, currentUser, isInitialized } = useAuth();
   const router = useRouter();
 
-  const [employeeId, setEmployeeId] = useState('W001');
-  const [password, setPassword] = useState('password123');
+  const [employeeId, setEmployeeId] = useState('');
+  const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (isInitialized && currentUser) {
+      router.replace('/(tabs)');
+    }
+  }, [isInitialized, currentUser]);
 
   const handleLogin = async () => {
     setErrorMessage('');
@@ -130,10 +136,10 @@ export default function LoginScreen() {
 
                 <TouchableOpacity
                   style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
-                  onPress={() => fillMock('SID001', 'password123')}
+                  onPress={() => fillMock('senthil', 'password123')}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Siddharth</Text>
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Senthil</Text>
                   <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
                 </TouchableOpacity>
 
@@ -152,6 +158,24 @@ export default function LoginScreen() {
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.mockRole, { color: colors.primaryText }]}>John</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('senthil', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Senthil</Text>
+                  <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.mockPill, { borderColor: colors.border, backgroundColor: colors.card }]}
+                  onPress={() => fillMock('sanjay', 'password123')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.mockRole, { color: colors.primaryText }]}>Sanjay</Text>
                   <Text style={[styles.mockId, { color: colors.secondaryText }]}>Worker</Text>
                 </TouchableOpacity>
               </View>
@@ -257,14 +281,16 @@ const styles = StyleSheet.create({
   },
   mockPillRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   mockPill: {
-    flex: 1,
+    flexBasis: '31%',
+    flexGrow: 1,
     borderWidth: 1,
     borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     alignItems: 'center',
   },
   mockRole: {

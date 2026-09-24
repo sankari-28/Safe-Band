@@ -60,4 +60,16 @@ public class AuthServiceImpl implements AuthService {
         String role = jwtProvider.extractRole(token);
         return new ValidateTokenResponse(true, userId, role);
     }
+
+    @Override
+    @Transactional
+    public void createOrUpdateCredential(String userId, String rawPassword, String role) {
+        AuthCredential credential = credentialRepository.findByUserId(userId)
+                .orElse(new AuthCredential());
+        credential.setUserId(userId);
+        credential.setPasswordHash(passwordEncoder.encode(rawPassword));
+        credential.setRole(role);
+        credential.setActive(true);
+        credentialRepository.save(credential);
+    }
 }

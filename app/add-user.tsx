@@ -26,7 +26,7 @@ export default function AddUserScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setErrorMessage('');
     if (!name.trim()) {
       setErrorMessage('Full name is required.');
@@ -45,16 +45,20 @@ export default function AddUserScreen() {
       return;
     }
 
-    if (selectedRole === 'worker') {
-      addWorker(name.trim(), employeeId.trim(), department.trim());
-    } else {
-      addSafetyOfficer(name.trim(), employeeId.trim(), department.trim());
-    }
+    try {
+      if (selectedRole === 'worker') {
+        await addWorker(name.trim(), employeeId.trim(), department.trim(), password.trim());
+      } else {
+        await addSafetyOfficer(name.trim(), employeeId.trim(), department.trim(), password.trim());
+      }
 
-    setIsSuccess(true);
-    setTimeout(() => {
-      router.back();
-    }, 1200);
+      setIsSuccess(true);
+      setTimeout(() => {
+        router.back();
+      }, 1000);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to create user. Please check if ID is already taken.');
+    }
   };
 
   return (

@@ -12,4 +12,8 @@ public interface NotificationService {
     List<NotificationDto> getUserNotifications(String userId);
 
     NotificationDto markAsRead(Long notificationId, String authenticatedUserId);
+
+    void markAllAsRead(String userId);
+
+    void broadcastToRole(String role, CreateNotificationRequest request);
 }

@@ -6,7 +6,6 @@ import jakarta.validation.constraints.NotNull;
 
 public class CreateNotificationRequest {
 
-    @NotBlank(message = "Recipient user ID is required")
     private String recipientUserId;
 
     @NotNull(message = "Notification type is required")

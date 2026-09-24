@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { api, setAuthToken } from '../services/api';
+import { appStorage } from '../services/storage';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -8,6 +9,7 @@ interface AuthContextType {
   logout: () => void;
   updateProfile: (updatedData: { name?: string; phone?: string; email?: string; department?: string }) => Promise<void>;
   role: UserRole | null;
+  isInitialized: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -16,30 +18,39 @@ const AuthContext = createContext<AuthContextType>({
   logout: () => {},
   updateProfile: async () => {},
   role: null,
+  isInitialized: false,
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
-  // Restore session from localStorage on initial boot or auto-authenticate
+  // Restore authenticated session from persistent storage on initial boot
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          const savedUser = window.localStorage.getItem('h2s_current_user');
-          if (savedUser) {
-            const userObj: User = JSON.parse(savedUser);
-            setCurrentUser(userObj);
-            return;
-          }
-        }
-        // If no user is saved in storage, automatically authenticate as Siddharth (Worker)
-        const loginRes = await login('SID001', 'password123');
-        if (!loginRes.success) {
-          await login('siddharth', 'password123');
+        const savedUserJson = await appStorage.getItem('h2s_current_user');
+        const savedToken = await appStorage.getItem('h2s_auth_token');
+
+        if (savedUserJson && savedToken) {
+          const userObj: User = JSON.parse(savedUserJson);
+          setCurrentUser(userObj);
+          setAuthToken(savedToken);
+
+          // Verify with backend silently in background to keep profile & token synchronized
+          api.getMyProfile()
+            .then((freshProfile) => {
+              setCurrentUser(freshProfile);
+              appStorage.setItem('h2s_current_user', JSON.stringify(freshProfile));
+            })
+            .catch((err) => {
+              console.log('[Auth] Token validation check:', err.message);
+            });
         }
       } catch (e) {
-        console.warn('Failed to restore session from storage:', e);
+        console.warn('[Auth] Failed to restore session from storage:', e);
+      } finally {
+        setIsInitialized(true);
       }
     };
     initAuth();
@@ -50,9 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const authData = await api.login(employeeId, pass);
       const profile = await api.getMyProfile();
       setCurrentUser(profile);
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('h2s_current_user', JSON.stringify(profile));
-      }
+      await appStorage.setItem('h2s_current_user', JSON.stringify(profile));
       return { success: true, user: profile };
     } catch (err: any) {
       console.error('Login error:', err);
@@ -63,13 +72,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     setAuthToken(null);
     setCurrentUser(null);
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem('h2s_auth_token');
-      window.localStorage.removeItem('h2s_current_user');
-    }
+    await appStorage.removeItem('h2s_auth_token');
+    await appStorage.removeItem('h2s_current_user');
   };
 
   const updateProfile = async (updatedData: { name?: string; phone?: string; email?: string; department?: string }) => {
@@ -82,9 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         department: updatedData.department,
       });
       setCurrentUser(updatedUser);
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('h2s_current_user', JSON.stringify(updatedUser));
-      }
+      await appStorage.setItem('h2s_current_user', JSON.stringify(updatedUser));
     } catch (err) {
       console.error('Failed to update profile via API:', err);
     }
@@ -98,6 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         updateProfile,
         role: currentUser ? currentUser.role : null,
+        isInitialized,
       }}
     >
       {children}
@@ -106,4 +112,3 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export const useAuth = () => useContext(AuthContext);
-

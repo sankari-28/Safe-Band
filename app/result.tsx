@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, Home, Cpu, Layers, BarChart2, ArrowRight, FileText, CheckCircle2, UserCheck, ArrowLeft } from 'lucide-react-native';
+import { Camera, Home, Cpu, Layers, BarChart2, ArrowRight, FileText, CheckCircle2, UserCheck, ArrowLeft, Clock } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -129,12 +129,12 @@ export default function ResultScreen() {
           <View style={styles.reportSummaryBox}>
             <View style={styles.reportRow}>
               <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Worker ID:</Text>
-              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.employeeId || latestRec?.workerId || 'SID001'}</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.employeeId || latestRec?.workerId || 'N/A'}</Text>
             </View>
 
             <View style={styles.reportRow}>
               <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Worker Name:</Text>
-              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.name || latestRec?.workerName || 'Siddharth'}</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText }]}>{currentUser?.name || latestRec?.workerName || 'Worker'}</Text>
             </View>
 
             <View style={styles.reportRow}>
@@ -149,7 +149,9 @@ export default function ResultScreen() {
 
             <View style={styles.reportRow}>
               <Text style={[styles.reportLabel, { color: colors.secondaryText }]}>Risk Classification:</Text>
-              <Text style={[styles.reportValue, { color: colors.primaryText, textTransform: 'capitalize' }]}>{result.riskLevel}</Text>
+              <Text style={[styles.reportValue, { color: colors.primaryText, textTransform: 'capitalize' }]}>
+                {result.riskCategory || (result.riskLevel === 'average' ? 'Moderate Risk' : result.riskLevel === 'high' ? 'High Risk' : 'Normal / Safe')}
+              </Text>
             </View>
 
             <View style={styles.reportRow}>
@@ -184,6 +186,13 @@ export default function ResultScreen() {
             title="Scan Again"
             onPress={() => router.push('/(tabs)/scan')}
             icon={<Camera size={20} color="#FFFFFF" />}
+          />
+
+          <SecondaryButton
+            title="View Scan History"
+            onPress={() => router.push('/(tabs)/history')}
+            icon={<Clock size={18} color={colors.primaryOrange} />}
+            style={{ marginTop: 10 }}
           />
 
           <SecondaryButton

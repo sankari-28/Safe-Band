@@ -4,5 +4,6 @@ public enum NotificationType {
     HIGH_EXPOSURE,
     CONSULTATION_REQUIRED,
     CONSULTATION_COMPLETED,
-    SYSTEM
+    SYSTEM,
+    ATTENDANCE_CHECKIN
 }

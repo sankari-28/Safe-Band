@@ -23,7 +23,8 @@ public class NotificationClient {
 
     public void sendHighExposureNotification(String workerId, Double ppm, Long exposureId) {
         try {
-            Map<String, Object> payload = Map.of(
+            // 1. Notify the exposed worker
+            Map<String, Object> workerPayload = Map.of(
                     "recipientUserId", workerId,
                     "notificationType", "HIGH_EXPOSURE",
                     "title", "HIGH H₂S EXPOSURE ALERT",
@@ -33,12 +34,30 @@ public class NotificationClient {
 
             webClient.post()
                     .uri("/api/notifications/internal")
-                    .bodyValue(payload)
+                    .bodyValue(workerPayload)
                     .retrieve()
                     .toBodilessEntity()
                     .subscribe(
-                            res -> log.info("Notification sent for high exposure ID: {}", exposureId),
-                            err -> log.warn("Failed to dispatch notification service alert: {}", err.getMessage())
+                            res -> log.info("Notification sent to worker {} for high exposure ID: {}", workerId, exposureId),
+                            err -> log.warn("Failed to dispatch worker alert: {}", err.getMessage())
+                    );
+
+            // 2. Broadcast critical exposure alert to all Safety Officers
+            Map<String, Object> officerPayload = Map.of(
+                    "notificationType", "HIGH_EXPOSURE",
+                    "title", String.format("CRITICAL H₂S ALERT: Worker %s", workerId),
+                    "message", String.format("CRITICAL: Worker %s recorded hazardous H₂S level of %.1f PPM! Immediate evacuation & safety consultation required.", workerId, ppm),
+                    "referenceId", String.valueOf(exposureId)
+            );
+
+            webClient.post()
+                    .uri("/api/notifications/internal/broadcast-role?role=SAFETY_OFFICER")
+                    .bodyValue(officerPayload)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .subscribe(
+                            res -> log.info("Broadcast alert dispatched to safety officers for exposure ID: {}", exposureId),
+                            err -> log.warn("Failed to broadcast alert to safety officers: {}", err.getMessage())
                     );
         } catch (Exception e) {
             log.warn("Could not dispatch alert to notification service: {}", e.getMessage());

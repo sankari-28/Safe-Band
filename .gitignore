@@ -33,3 +33,17 @@ backend/**/.classpath
 backend/**/.project
 backend/**/.settings/
 backend/**/.factorypath
+
+# Python & AI
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+venv/
+.env
+
+# System runtime & logs
+.launcher-pids.json
+logs/
+

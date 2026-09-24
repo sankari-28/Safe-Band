@@ -22,22 +22,8 @@ export default function NotificationsScreen() {
 
   const role = currentUser?.role || 'worker';
 
-  // Filter notifications relevant to active role
-  const roleNotifications = notifications.filter((n) => {
-    if (role === 'worker') {
-      return (
-        n.role === 'worker' &&
-        (n.workerId === currentUser?.employeeId || n.workerId === currentUser?.id || !n.workerId)
-      );
-    }
-    if (role === 'safetyOfficer') {
-      return n.role === 'safetyOfficer';
-    }
-    if (role === 'admin') {
-      return n.role === 'admin';
-    }
-    return true;
-  });
+  // Personal notifications are already isolated by authenticated user principal
+  const roleNotifications = notifications;
 
   const totalPages = Math.ceil(roleNotifications.length / PAGE_SIZE) || 1;
   const paginatedNotifications = roleNotifications.slice(

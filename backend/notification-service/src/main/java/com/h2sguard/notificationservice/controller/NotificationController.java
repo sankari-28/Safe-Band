@@ -58,10 +58,26 @@ public class NotificationController {
         return ResponseEntity.ok(notificationService.markAsRead(notificationId, authenticatedUserId));
     }
 
+    @PutMapping("/my/read-all")
+    @Operation(summary = "Mark all notifications for current user as read")
+    public ResponseEntity<Void> markAllAsRead(Authentication authentication) {
+        String authenticatedUserId = authentication.getName();
+        notificationService.markAllAsRead(authenticatedUserId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/internal")
     @Operation(summary = "Internal microservice endpoint to dispatch notifications")
     public ResponseEntity<NotificationDto> createNotificationInternal(@Valid @RequestBody CreateNotificationRequest request) {
         NotificationDto created = notificationService.createNotification(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @PostMapping("/internal/broadcast-role")
+    @Operation(summary = "Internal microservice endpoint to broadcast alerts by role (e.g. SAFETY_OFFICER)")
+    public ResponseEntity<Void> broadcastToRole(@RequestParam String role,
+                                                @Valid @RequestBody CreateNotificationRequest request) {
+        notificationService.broadcastToRole(role, request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 }

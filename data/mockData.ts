@@ -3,8 +3,8 @@ import { User, ExposureRecord, NotificationItem, ThresholdConfig } from '../type
 export const initialUsers: User[] = [];
 
 export const initialThresholds: ThresholdConfig = {
-  normalThreshold: 15,
-  highThreshold: 35,
+  normalThreshold: 5.0,
+  highThreshold: 9.0,
 };
 
 export const initialExposureRecords: ExposureRecord[] = [];

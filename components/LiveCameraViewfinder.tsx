@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   capturedImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as any),
     width: '100%',
     height: '100%',
     borderRadius: 20,
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     maxWidth: 380,
   },
   hudOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as any),
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -23,6 +23,7 @@ export default function ScanScreen() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedBase64, setSelectedBase64] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [showCameraModal, setShowCameraModal] = useState(false);
 
@@ -43,11 +44,13 @@ export default function ScanScreen() {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: false,
           quality: 0.8,
+          base64: true,
         });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
           const asset = result.assets[0];
           setSelectedImage(asset.uri);
+          setSelectedBase64(asset.base64 || null);
         }
       } catch (err) {
         setErrorMessage('Camera access failed or is unsupported on this platform.');
@@ -67,6 +70,7 @@ export default function ScanScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
+        base64: true,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -85,6 +89,7 @@ export default function ScanScreen() {
         }
 
         setSelectedImage(uri);
+        setSelectedBase64(asset.base64 || null);
       }
     } catch (err) {
       setErrorMessage('Unable to open file picker on this device/browser.');
@@ -106,14 +111,15 @@ export default function ScanScreen() {
     setActiveStepIndex(-1);
 
     try {
-      const workerId = currentUser?.employeeId || currentUser?.id || 'SID001';
-      const workerName = currentUser?.name || 'Siddharth (Worker)';
+      const workerId = currentUser?.employeeId || currentUser?.id || 'WORKER';
+      const workerName = currentUser?.name || currentUser?.employeeId || 'Worker';
 
       const result = await runMockExposureAnalysis(
         calculateRiskLevel,
         (stepIndex) => setActiveStepIndex(stepIndex),
         selectedImage,
-        workerId
+        workerId,
+        selectedBase64
       );
 
       // If AI detects missing wristband, empty background, or glare requiring retake
@@ -341,7 +347,10 @@ export default function ScanScreen() {
       <CameraModal
         visible={showCameraModal}
         onClose={() => setShowCameraModal(false)}
-        onPictureTaken={(uri) => setSelectedImage(uri)}
+        onPictureTaken={(uri, b64) => {
+          setSelectedImage(uri);
+          setSelectedBase64(b64 || null);
+        }}
         onPermissionDenied={() => {
           setShowCameraModal(false);
           setErrorMessage('Camera access was denied. Please enable camera permission in your device settings.');
@@ -432,7 +441,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   previewImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as any),
     width: '100%',
     height: '100%',
   },

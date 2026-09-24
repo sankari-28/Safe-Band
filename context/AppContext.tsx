@@ -1,13 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, ExposureRecord, NotificationItem, ThresholdConfig, RiskLevel, ExposureAnalysisResult } from '../types';
+import { User, ExposureRecord, NotificationItem, ThresholdConfig, RiskLevel, ExposureAnalysisResult, AttendanceRecord } from '../types';
 import { useAuth } from './AuthContext';
 import { api } from '../services/api';
+import { appStorage } from '../services/storage';
 
 interface AppContextType {
   users: User[];
   exposureRecords: ExposureRecord[];
   thresholds: ThresholdConfig;
   notifications: NotificationItem[];
+  attendance: AttendanceRecord | null;
+  isAttendanceLoading: boolean;
+  hasCheckedInToday: boolean;
+  allTodayAttendance: AttendanceRecord[];
   lastScanResult: ExposureAnalysisResult | null;
   setLastScanResult: (result: ExposureAnalysisResult | null) => void;
   calculateRiskLevel: (h2sPpm: number) => RiskLevel;
@@ -15,19 +20,25 @@ interface AppContextType {
   markAsConsulted: (recordId: string) => Promise<void>;
   updateThresholds: (normal: number, high: number) => Promise<void>;
   generateReport: (recordId: string) => void;
-  addWorker: (name: string, employeeId: string, department: string) => Promise<void>;
-  addSafetyOfficer: (name: string, employeeId: string, department: string) => Promise<void>;
+  addWorker: (name: string, employeeId: string, department: string, password?: string) => Promise<void>;
+  addSafetyOfficer: (name: string, employeeId: string, department: string, password?: string) => Promise<void>;
   deactivateUser: (userId: string) => Promise<void>;
   deleteUser: (userId: string) => Promise<void>;
   markNotificationRead: (notifId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+  checkInAttendance: (shiftName: string, department?: string) => Promise<AttendanceRecord>;
   refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType>({
   users: [],
   exposureRecords: [],
-  thresholds: { normalThreshold: 15, highThreshold: 35 },
+  thresholds: { normalThreshold: 5.0, highThreshold: 9.0 },
   notifications: [],
+  attendance: null,
+  isAttendanceLoading: false,
+  hasCheckedInToday: false,
+  allTodayAttendance: [],
   lastScanResult: null,
   setLastScanResult: () => {},
   calculateRiskLevel: () => 'normal',
@@ -40,6 +51,8 @@ const AppContext = createContext<AppContextType>({
   deactivateUser: async () => {},
   deleteUser: async () => {},
   markNotificationRead: async () => {},
+  markAllNotificationsRead: async () => {},
+  checkInAttendance: async () => ({} as AttendanceRecord),
   refreshData: async () => {},
 });
 
@@ -48,48 +61,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [users, setUsers] = useState<User[]>([]);
   const [exposureRecords, setExposureRecords] = useState<ExposureRecord[]>([]);
-  const [thresholds, setThresholds] = useState<ThresholdConfig>({ normalThreshold: 15, highThreshold: 35 });
+  const [thresholds, setThresholds] = useState<ThresholdConfig>({ normalThreshold: 5.0, highThreshold: 9.0 });
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState<boolean>(true);
+  const [allTodayAttendance, setAllTodayAttendance] = useState<AttendanceRecord[]>([]);
   const [lastScanResult, setLastScanResult] = useState<ExposureAnalysisResult | null>(null);
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const workerKey = currentUser?.employeeId || currentUser?.id || 'worker';
+  const hasCheckedInToday = Boolean(
+    attendance ||
+    (currentUser?.employeeId && appStorage.getItemSync(`attendance_checked_in_${workerKey}_${todayStr}`) === 'true')
+  );
+
   const calculateRiskLevel = (h2sPpm: number): RiskLevel => {
-    if (h2sPpm <= thresholds.normalThreshold) return 'normal';
-    if (h2sPpm <= thresholds.highThreshold) return 'average';
+    const normalMax = thresholds.normalThreshold ?? 5.0;
+    const highMax = thresholds.highThreshold ?? 9.0;
+    if (h2sPpm <= normalMax) return 'normal';
+    if (h2sPpm <= highMax) return 'average';
     return 'high';
   };
 
   const refreshData = async () => {
     if (!currentUser) return;
+    setIsAttendanceLoading(true);
     try {
-      // 1. Fetch Thresholds
-      const fetchedThresholds = await api.getThreshold();
+      // 1. Fetch Thresholds & Notifications in parallel
+      const [fetchedThresholds, fetchedNotifs] = await Promise.all([
+        api.getThreshold().catch(() => ({ normalThreshold: 5.0, highThreshold: 9.0 })),
+        api.getMyNotifications(role || 'worker').catch(() => []),
+      ]);
       setThresholds(fetchedThresholds);
-
-      // 2. Fetch Notifications
-      const fetchedNotifs = await api.getMyNotifications(role || 'worker');
       setNotifications(fetchedNotifs);
 
-      // 3. Fetch Exposure Records based on Role
+      // 2. Fetch Exposure Records & Attendance strictly based on Role
       if (role === 'worker') {
-        const myExposures = await api.getMyExposures();
-        if (myExposures.length === 0) {
-          // Fallback to all exposures if my is empty so seeded records or team scans remain visible
-          const all = await api.getAllExposures();
-          setExposureRecords(all.length > 0 ? all : myExposures);
-        } else {
-          setExposureRecords(myExposures);
+        const [myExposures, att] = await Promise.all([
+          api.getMyExposures().catch(() => []),
+          api.getTodayAttendance().catch(() => null),
+        ]);
+        setExposureRecords(myExposures);
+        setAttendance(att);
+        if (att) {
+          appStorage.setItem(`attendance_checked_in_${workerKey}_${todayStr}`, 'true');
         }
+        setIsAttendanceLoading(false);
       } else {
-        const allExposures = await api.getAllExposures();
+        setIsAttendanceLoading(false);
+        const [allExposures, allAtt, allUsers] = await Promise.all([
+          api.getAllExposures().catch(() => []),
+          api.getAllTodayAttendance().catch(() => []),
+          (role === 'safetyOfficer' || role === 'admin') ? api.getAllUsers().catch(() => []) : Promise.resolve([]),
+        ]);
         setExposureRecords(allExposures);
-      }
-
-      // 4. Fetch Users list for Staff
-      if (role === 'safetyOfficer' || role === 'admin') {
-        const allUsers = await api.getAllUsers();
-        setUsers(allUsers);
+        setAllTodayAttendance(allAtt);
+        if (role === 'safetyOfficer' || role === 'admin') {
+          setUsers(allUsers);
+        }
       }
     } catch (e) {
+      setIsAttendanceLoading(false);
       console.error('Error fetching live data from API Gateway:', e);
     }
   };
@@ -101,12 +133,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUsers([]);
       setExposureRecords([]);
       setNotifications([]);
+      setAttendance(null);
+      setAllTodayAttendance([]);
     }
   }, [currentUser]);
 
   const addExposureRecord = async (recordData: Omit<ExposureRecord, 'id' | 'riskLevel'>): Promise<ExposureRecord> => {
-    const workerIdToUse = recordData.workerId || currentUser?.employeeId || currentUser?.id || 'SID001';
-    
+    const workerIdToUse = recordData.workerId || currentUser?.employeeId || currentUser?.id || 'WORKER';
+
     try {
       const created = await api.recordExposure({
         workerId: workerIdToUse,
@@ -144,8 +178,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err) {
       console.error('Failed to mark as consulted:', err);
       setExposureRecords((prevRecords) =>
-        prevRecords.map((rec) =>
-          rec.id === recordId ? { ...rec, consulted: true, consultedBy: 'Safety Officer' } : rec
+        prevRecords.map((r) =>
+          r.id === recordId
+            ? { ...r, consulted: true, consultedAt: new Date().toLocaleTimeString() }
+            : r
         )
       );
     }
@@ -155,9 +191,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const updated = await api.updateThreshold(normal, high);
       setThresholds(updated);
-      await refreshData();
     } catch (err) {
-      console.error('Failed to update thresholds:', err);
+      console.error('Failed to update threshold:', err);
       setThresholds({ normalThreshold: normal, highThreshold: high });
     }
   };
@@ -168,31 +203,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const addWorker = async (name: string, employeeId: string, department: string) => {
+  const addWorker = async (name: string, employeeId: string, department: string, password?: string) => {
     try {
       const newWorker = await api.addWorker({
         userId: employeeId,
         fullName: name,
         department,
+        password,
       });
       setUsers((prev) => [...prev, newWorker]);
-      await refreshData();
     } catch (err) {
       console.error('Failed to add worker:', err);
+      throw err;
     }
   };
 
-  const addSafetyOfficer = async (name: string, employeeId: string, department: string) => {
+  const addSafetyOfficer = async (name: string, employeeId: string, department: string, password?: string) => {
     try {
-      const newSo = await api.addSafetyOfficer({
+      const newOfficer = await api.addSafetyOfficer({
         userId: employeeId,
         fullName: name,
         department,
+        password,
       });
-      setUsers((prev) => [...prev, newSo]);
-      await refreshData();
+      setUsers((prev) => [...prev, newOfficer]);
     } catch (err) {
       console.error('Failed to add safety officer:', err);
+      throw err;
     }
   };
 
@@ -225,6 +262,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const markAllNotificationsRead = async () => {
+    try {
+      await api.markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch (err) {
+      console.error('Failed to mark all notifications read:', err);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }
+  };
+
+  const checkInAttendance = async (shiftName: string, department?: string): Promise<AttendanceRecord> => {
+    try {
+      const record = await api.checkInAttendance(shiftName, department);
+      setAttendance(record);
+      setIsAttendanceLoading(false);
+      appStorage.setItem(`attendance_checked_in_${workerKey}_${todayStr}`, 'true');
+      await refreshData();
+      return record;
+    } catch (err) {
+      console.error('Failed to check in attendance:', err);
+      throw err;
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -232,6 +293,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exposureRecords,
         thresholds,
         notifications,
+        attendance,
+        isAttendanceLoading,
+        hasCheckedInToday,
+        allTodayAttendance,
         lastScanResult,
         setLastScanResult,
         calculateRiskLevel,
@@ -244,6 +309,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deactivateUser,
         deleteUser,
         markNotificationRead,
+        markAllNotificationsRead,
+        checkInAttendance,
         refreshData,
       }}
     >
@@ -253,4 +320,3 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 };
 
 export const useApp = () => useContext(AppContext);
-

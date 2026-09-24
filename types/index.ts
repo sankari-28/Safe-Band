@@ -34,8 +34,18 @@ export interface ExposureRecord {
 }
 
 export interface ThresholdConfig {
-  normalThreshold: number; // e.g. 15 ppm
-  highThreshold: number;   // e.g. 35 ppm
+  normalThreshold: number; // e.g. 5 ppm
+  highThreshold: number;   // e.g. 9 ppm
+}
+
+export interface AttendanceRecord {
+  id: string;
+  workerId: string;
+  workerName: string;
+  shiftName: string;
+  checkInDate: string;
+  checkInTime: string;
+  department?: string;
 }
 
 export interface NotificationItem {
@@ -47,7 +57,7 @@ export interface NotificationItem {
   read: boolean;
   workerId?: string;
   recordId?: string;
-  type?: 'exposure' | 'report' | 'consultation' | 'system';
+  type?: 'exposure' | 'report' | 'consultation' | 'attendance' | 'system';
 }
 
 export interface ExposureAnalysisResult {
@@ -71,4 +81,3 @@ export interface AnalysisProgressStep {
   subtitle: string;
   completed: boolean;
 }
-

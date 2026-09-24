@@ -7,7 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 interface CameraModalProps {
   visible: boolean;
   onClose: () => void;
-  onPictureTaken: (uri: string) => void;
+  onPictureTaken: (uri: string, base64?: string) => void;
   onPermissionDenied: () => void;
 }
 
@@ -44,10 +44,11 @@ export const CameraModal: React.FC<CameraModalProps> = ({
       if (cameraRef.current) {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.8,
-          skipProcessing: Platform.OS === 'android',
+          base64: true,
+          skipProcessing: false,
         });
         if (photo?.uri) {
-          onPictureTaken(photo.uri);
+          onPictureTaken(photo.uri, photo.base64);
           onClose();
         }
       }
@@ -64,7 +65,8 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
       <View style={[styles.container, { backgroundColor: '#000000' }]}>
         {permission?.granted ? (
-          <CameraView style={styles.camera} facing={facing} ref={cameraRef}>
+          <View style={StyleSheet.absoluteFill}>
+            <CameraView style={StyleSheet.absoluteFill} facing={facing} ref={cameraRef} />
             {/* Overlay Grid / Target Alignment Guide */}
             <View style={styles.overlay}>
               {/* Header Controls */}
@@ -104,7 +106,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 </TouchableOpacity>
               </View>
             </View>
-          </CameraView>
+          </View>
         ) : (
           <View style={styles.permissionBox}>
             <Text style={[styles.permissionText, { color: '#FFFFFF' }]}>

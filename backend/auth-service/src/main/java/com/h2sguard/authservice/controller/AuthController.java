@@ -1,6 +1,7 @@
 package com.h2sguard.authservice.controller;
 
 import com.h2sguard.authservice.dto.AuthResponse;
+import com.h2sguard.authservice.dto.CreateCredentialsRequest;
 import com.h2sguard.authservice.dto.LoginRequest;
 import com.h2sguard.authservice.dto.ValidateTokenResponse;
 import com.h2sguard.authservice.service.AuthService;
@@ -32,5 +33,12 @@ public class AuthController {
     @Operation(summary = "Validate JWT bearer token")
     public ResponseEntity<ValidateTokenResponse> validateToken(@RequestParam String token) {
         return ResponseEntity.ok(authService.validateToken(token));
+    }
+
+    @PostMapping("/internal/credentials")
+    @Operation(summary = "Internal credential creation for newly registered users")
+    public ResponseEntity<Void> createCredentials(@RequestBody CreateCredentialsRequest request) {
+        authService.createOrUpdateCredential(request.getUserId(), request.getPassword(), request.getRole());
+        return ResponseEntity.ok().build();
     }
 }

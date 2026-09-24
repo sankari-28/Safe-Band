@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Shield, Sun, Moon, ArrowLeft, LogOut } from 'lucide-react-native';
+import { Shield, Sun, Moon, ArrowLeft, LogOut, Bell } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useApp } from '../context/AppContext';
 import { useRouter } from 'expo-router';
 import { ConfirmModal } from './ConfirmModal';
+import { NotificationModal } from './NotificationModal';
 
 interface AppHeaderProps {
   title?: string;
   subtitle?: string;
   showBack?: boolean;
   showThemeToggle?: boolean;
+  showNotifications?: boolean;
   showLogout?: boolean;
   onBackPress?: () => void;
   onLogoutPress?: () => void;
@@ -21,14 +24,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   subtitle,
   showBack = false,
   showThemeToggle = true,
+  showNotifications = true,
   showLogout = true,
   onBackPress,
   onLogoutPress,
 }) => {
-  const { colors, isDark, themeMode, setThemeMode } = useTheme();
+  const { colors, isDark, setThemeMode } = useTheme();
   const { logout, currentUser } = useAuth();
+  const { notifications } = useApp();
   const router = useRouter();
+
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const handleBack = () => {
     if (onBackPress) {
@@ -87,6 +96,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </View>
 
         <View style={styles.rightActions}>
+          {/* Notifications Bell Icon */}
+          {showNotifications && currentUser && (
+            <TouchableOpacity
+              style={[styles.iconButton, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}
+              onPress={() => setShowNotificationsModal(true)}
+              activeOpacity={0.7}
+              accessibilityLabel="Notifications"
+            >
+              <Bell size={18} color={unreadCount > 0 ? colors.primaryOrange : colors.primaryText} />
+              {unreadCount > 0 && (
+                <View style={[styles.headerBadge, { backgroundColor: colors.dangerText }]}>
+                  <Text style={styles.headerBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+
           {showThemeToggle && (
             <TouchableOpacity
               style={[styles.iconButton, { backgroundColor: colors.secondaryBg, borderColor: colors.border }]}
@@ -124,6 +150,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         onConfirm={handleConfirmLogout}
         onCancel={() => setShowLogoutModal(false)}
       />
+
+      <NotificationModal
+        visible={showNotificationsModal}
+        onClose={() => setShowNotificationsModal(false)}
+      />
     </>
   );
 };
@@ -156,6 +187,23 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  headerBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  headerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   textContainer: {
     flex: 1,

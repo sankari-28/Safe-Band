@@ -1,10 +1,9 @@
 package com.h2sguard.userservice.controller;
 
-import com.h2sguard.userservice.dto.CreateUserRequest;
-import com.h2sguard.userservice.dto.UpdateProfileRequest;
-import com.h2sguard.userservice.dto.UserDto;
+import com.h2sguard.userservice.dto.*;
 import com.h2sguard.userservice.entity.Role;
 import com.h2sguard.userservice.entity.User;
+import com.h2sguard.userservice.service.AttendanceService;
 import com.h2sguard.userservice.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -25,9 +24,11 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final AttendanceService attendanceService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, AttendanceService attendanceService) {
         this.userService = userService;
+        this.attendanceService = attendanceService;
     }
 
     @GetMapping("/me")
@@ -38,23 +39,23 @@ public class UserController {
     }
 
     @PutMapping("/me")
-    @Operation(summary = "Update current authenticated user's editable profile fields")
+    @Operation(summary = "Update personal profile information")
     public ResponseEntity<UserDto> updateMyProfile(Authentication authentication,
                                                    @Valid @RequestBody UpdateProfileRequest request) {
         String userId = authentication.getName();
         return ResponseEntity.ok(userService.updateUserProfile(userId, request));
     }
 
-    @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'SAFETY_OFFICER')")
-    @Operation(summary = "View all registered users (ADMIN, SAFETY_OFFICER)")
+    @GetMapping("/all")
+    @PreAuthorize("hasAnyRole('SAFETY_OFFICER', 'ADMIN')")
+    @Operation(summary = "View all system users (SAFETY_OFFICER, ADMIN only)")
     public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @GetMapping("/workers")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SAFETY_OFFICER')")
-    @Operation(summary = "View all workers")
+    @PreAuthorize("hasAnyRole('SAFETY_OFFICER', 'ADMIN')")
+    @Operation(summary = "View all workers (SAFETY_OFFICER, ADMIN only)")
     public ResponseEntity<List<UserDto>> getWorkers() {
         return ResponseEntity.ok(userService.getUsersByRole(Role.WORKER));
     }
@@ -92,9 +93,47 @@ public class UserController {
         return ResponseEntity.noContent().build();
     }
 
+    // --- ATTENDANCE WORKFLOW ENDPOINTS ---
+
+    @PostMapping("/attendance/check-in")
+    @Operation(summary = "Record worker daily attendance check-in and shift selection")
+    public ResponseEntity<AttendanceDto> checkIn(Authentication authentication,
+                                                 @Valid @RequestBody CheckInRequest request) {
+        String workerId = authentication.getName();
+        AttendanceDto dto = attendanceService.checkIn(workerId, request);
+        return ResponseEntity.ok(dto);
+    }
+
+    @GetMapping("/attendance/today")
+    @Operation(summary = "Get current authenticated worker's check-in status for today")
+    public ResponseEntity<AttendanceDto> getTodayAttendance(Authentication authentication) {
+        String workerId = authentication.getName();
+        AttendanceDto dto = attendanceService.getTodayAttendance(workerId);
+        if (dto == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(dto);
+    }
+
+    @GetMapping("/attendance/all-today")
+    @PreAuthorize("hasAnyRole('SAFETY_OFFICER', 'ADMIN')")
+    @Operation(summary = "View all workers checked in today (SAFETY_OFFICER, ADMIN)")
+    public ResponseEntity<List<AttendanceDto>> getAllTodayAttendance() {
+        return ResponseEntity.ok(attendanceService.getAllTodayAttendance());
+    }
+
+    // --- INTERNAL MICROSERVICE ENDPOINTS ---
+
     @GetMapping("/internal/{userId}")
     @Operation(summary = "Internal user details verification endpoint for microservice communication")
     public ResponseEntity<User> getInternalUserEntity(@PathVariable String userId) {
         return ResponseEntity.ok(userService.getUserEntityByUserId(userId));
+    }
+
+    @GetMapping("/internal/by-role")
+    @Operation(summary = "Internal endpoint to get all active users by role for broadcasting")
+    public ResponseEntity<List<UserDto>> getInternalUsersByRole(@RequestParam String role) {
+        Role parsedRole = Role.valueOf(role.toUpperCase());
+        return ResponseEntity.ok(userService.getUsersByRole(parsedRole));
     }
 }

@@ -15,6 +15,30 @@ export const ExposureResultCard: React.FC<ExposureResultCardProps> = ({ result }
     if (result.sensorStatus?.includes('SATURAT')) {
       return { label: 'Physical Saturation', bg: '#2B1115', text: '#FF4757' };
     }
+    // High Priority: Numeric PPM safety threshold
+    if (typeof result.h2sLevel === 'number' && !isNaN(result.h2sLevel) && result.h2sLevel > 0) {
+      if (result.h2sLevel > 9.0) {
+        return { label: 'High Risk', bg: colors.softDanger, text: colors.dangerText };
+      }
+      if (result.h2sLevel > 5.0) {
+        return { label: 'Moderate Exposure', bg: colors.softWarning, text: colors.warningText };
+      }
+    }
+    if (result.riskCategory) {
+      const cat = result.riskCategory.toLowerCase();
+      if (cat.includes('danger') || cat.includes('high')) {
+        return { label: result.riskCategory, bg: colors.softDanger, text: colors.dangerText };
+      }
+      if (cat.includes('moderate')) {
+        return { label: result.riskCategory, bg: colors.softWarning, text: colors.warningText };
+      }
+      if (cat.includes('low')) {
+        return { label: result.riskCategory, bg: colors.isDark ? '#3D2F15' : '#FEF3C7', text: '#D97706' };
+      }
+      if (cat.includes('normal') || cat.includes('safe')) {
+        return { label: result.riskCategory, bg: colors.softSuccess, text: colors.successText };
+      }
+    }
     switch (result.riskLevel) {
       case 'high':
         return { label: 'High Risk', bg: colors.softDanger, text: colors.dangerText };

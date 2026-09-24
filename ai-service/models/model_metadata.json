@@ -1,0 +1,59 @@
+{
+  "model_name": "H2S Random Forest Colorimetric Detector",
+  "feature_names": [
+    "R",
+    "G",
+    "B",
+    "H",
+    "S",
+    "V",
+    "L",
+    "a",
+    "b",
+    "DeltaE"
+  ],
+  "feature_order": [
+    "R",
+    "G",
+    "B",
+    "H",
+    "S",
+    "V",
+    "L",
+    "a",
+    "b",
+    "DeltaE"
+  ],
+  "calibrated_exposure_min": 15,
+  "baseline_lab": [
+    148.0,
+    104.0,
+    132.0
+  ],
+  "saturation_thresholds": {
+    "L_max": 55.0,
+    "DeltaE_min": 95.0,
+    "V_max": 45.0
+  },
+  "risk_categories": {
+    "Normal / Safe": "< 1.0 ppm (Clean air)",
+    "Low Risk": "1.0 - 5.0 ppm (OSHA Action Level)",
+    "Moderate Risk": "5.0 - 10.0 ppm (ACGIH STEL Threshold)",
+    "High Danger": "> 10.0 ppm (OSHA PEL Ceiling / Evacuate)"
+  },
+  "metrics": {
+    "calibrated_regressor": {
+      "r2": 0.9939646394418217,
+      "mae": 0.18959313399778513,
+      "rmse": 0.28078767784688197
+    },
+    "risk_classifier": {
+      "accuracy": 0.9883720930232558
+    },
+    "general_regressor": {
+      "r2": 0.8986506069250623,
+      "mae": 0.4934862491052179
+    }
+  },
+  "version": "1.0.0"
+}

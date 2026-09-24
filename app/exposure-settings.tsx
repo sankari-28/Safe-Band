@@ -32,8 +32,8 @@ export default function ExposureSettingsScreen() {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  const normVal = parseFloat(normalPpm) || 15;
-  const highVal = parseFloat(highPpm) || 35;
+  const normVal = parseFloat(normalPpm) || 5;
+  const highVal = parseFloat(highPpm) || 9;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>

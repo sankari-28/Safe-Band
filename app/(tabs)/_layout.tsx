@@ -15,7 +15,7 @@ export default function TabsLayout() {
 
   const activeBgColor = colors.isDark ? '#3A2A1E' : '#FFF1E6';
 
-  const renderIcon = (IconComponent: any, focused: boolean, color: string) => (
+  const renderIcon = (IconComponent: any, focused: boolean, color: any) => (
     <View
       style={[
         styles.iconContainer,
@@ -116,11 +116,12 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* NOTIFICATIONS (Common to all roles) */}
+      {/* NOTIFICATIONS (Accessible via top header bell icon popover) */}
       <Tabs.Screen
         name="notifications"
         options={{
           title: 'Notifications',
+          href: null,
           tabBarIcon: ({ focused, color }) => renderIcon(Bell, focused, color),
         }}
       />

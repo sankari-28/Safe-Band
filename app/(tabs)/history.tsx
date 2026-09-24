@@ -25,20 +25,14 @@ export default function HistoryScreen() {
   const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'safetyOfficer';
 
   // For Admin / Safety Officer: show all records across company
-  // For Worker: show worker's own records, with smart fallback to available scans
-  const userMatchedRecords = exposureRecords.filter(
-    (r) =>
-      r.workerId === currentUser?.employeeId ||
-      r.workerId === currentUser?.id ||
-      r.workerId === 'siddharth' ||
-      r.workerId === 'SID001'
-  );
-
+  // For Worker: show worker's own records strictly
   const myRecords = isStaff
     ? exposureRecords
-    : userMatchedRecords.length > 0
-    ? userMatchedRecords
-    : exposureRecords;
+    : exposureRecords.filter(
+        (r) =>
+          Boolean(currentUser?.employeeId && r.workerId === currentUser.employeeId) ||
+          Boolean(currentUser?.id && r.workerId === currentUser.id)
+      );
 
   const filtered = myRecords.filter((r) => {
     if (riskFilter === 'all') return true;

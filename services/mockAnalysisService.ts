@@ -16,7 +16,8 @@ export const runMockExposureAnalysis = async (
   calculateRisk: (ppm: number) => RiskLevel,
   onProgress?: (stepIndex: number) => void,
   imageUri?: string,
-  workerId: string = 'W001'
+  workerId: string = 'W001',
+  preloadedBase64?: string | null
 ): Promise<ExposureAnalysisResult> => {
   // Step 1
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -34,8 +35,8 @@ export const runMockExposureAnalysis = async (
   await new Promise((resolve) => setTimeout(resolve, 400));
   if (onProgress) onProgress(3);
 
-  let simulatedPpm = 12;
-  let simulatedDuration = 18;
+  let simulatedPpm = 2.5;
+  let simulatedDuration = 15;
   let confidence = 94;
 
   let riskCategory: string | undefined = undefined;
@@ -45,8 +46,10 @@ export const runMockExposureAnalysis = async (
   let warning: string | undefined = undefined;
   let message: string | undefined = undefined;
 
+  let risk = calculateRisk(simulatedPpm);
+
   if (imageUri) {
-    const apiResult = await api.analyzeImage(imageUri, workerId);
+    const apiResult = await api.analyzeImage(imageUri, workerId, preloadedBase64);
     if (apiResult) {
       simulatedPpm = apiResult.h2sLevel;
       simulatedDuration = apiResult.exposureDuration;
@@ -57,14 +60,13 @@ export const runMockExposureAnalysis = async (
       retakeRequired = apiResult.retakeRequired;
       warning = apiResult.warning || undefined;
       message = apiResult.message || undefined;
+      risk = apiResult.riskLevel || calculateRisk(simulatedPpm);
     }
   }
 
   const now = new Date();
   const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const dateString = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-
-  const risk = calculateRisk(simulatedPpm);
 
   return {
     h2sLevel: simulatedPpm,

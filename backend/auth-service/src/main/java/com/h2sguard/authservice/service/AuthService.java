@@ -9,4 +9,6 @@ public interface AuthService {
     AuthResponse login(LoginRequest request);
 
     ValidateTokenResponse validateToken(String token);
+
+    void createOrUpdateCredential(String userId, String rawPassword, String role);
 }

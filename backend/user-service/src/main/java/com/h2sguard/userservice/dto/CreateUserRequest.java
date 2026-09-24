@@ -23,7 +23,6 @@ public class CreateUserRequest {
     private String phoneNumber;
     private String department;
 
-    @NotNull(message = "Role is required")
     private Role role;
 
     @NotBlank(message = "Password is required")
