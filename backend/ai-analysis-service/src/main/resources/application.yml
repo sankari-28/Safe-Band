@@ -4,10 +4,6 @@ server:
 spring:
   application:
     name: ai-analysis-service
-
-ai:
-  inference:
-    url: ${AI_INFERENCE_URL:http://localhost:5000/api/analysis}
   servlet:
     multipart:
       max-file-size: 10MB
@@ -28,6 +24,10 @@ ai:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+
+ai:
+  inference:
+    url: ${AI_INFERENCE_URL:http://localhost:5000/api/analysis}
 
 jwt:
   secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
