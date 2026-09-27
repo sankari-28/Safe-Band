@@ -46,7 +46,7 @@ public class UserController {
         return ResponseEntity.ok(userService.updateUserProfile(userId, request));
     }
 
-    @GetMapping("/all")
+    @GetMapping({"", "/", "/all"})
     @PreAuthorize("hasAnyRole('SAFETY_OFFICER', 'ADMIN')")
     @Operation(summary = "View all system users (SAFETY_OFFICER, ADMIN only)")
     public ResponseEntity<List<UserDto>> getAllUsers() {

@@ -86,7 +86,7 @@ public class ExposureController {
         return ResponseEntity.ok(exposureService.getHighRiskExposures());
     }
 
-    @GetMapping("/all")
+    @GetMapping({"", "/", "/all"})
     @PreAuthorize("hasAnyRole('SAFETY_OFFICER', 'ADMIN')")
     @Operation(summary = "View all exposure records (SAFETY_OFFICER, ADMIN)")
     public ResponseEntity<List<ExposureRecordDto>> getAllExposures() {
