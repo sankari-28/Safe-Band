@@ -15,7 +15,7 @@ import { appStorage } from '../../services/storage';
 export default function DashboardScreen() {
   const { colors } = useTheme();
   const { currentUser } = useAuth();
-  const { exposureRecords, users, attendance, allTodayAttendance, isAttendanceLoading, hasCheckedInToday } = useApp();
+  const { exposureRecords, users, attendance, allTodayAttendance, isAttendanceLoading, hasCheckedInToday, thresholds } = useApp();
   const router = useRouter();
 
   const role = currentUser?.role || 'worker';
@@ -92,15 +92,45 @@ export default function DashboardScreen() {
 
     // Today's Daily Record calculations
     const todayDateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    const todayRecords = workerRecords.filter((r) => r.date === todayDateStr);
-    const todayCount = todayRecords.length;
-    const todayTotalDuration = todayRecords.reduce((acc, r) => acc + r.exposureDurationMinutes, 0);
-    const todayPeakPpm = todayRecords.length > 0 ? Math.max(...todayRecords.map((r) => r.h2sLevelPpm)) : 0;
-    const todayHighRisk = todayRecords.some((r) => r.riskLevel === 'high' || r.h2sLevelPpm > 9.0);
-    const todayModerate = todayRecords.some((r) => r.riskLevel === 'average' || r.h2sLevelPpm > 5.0);
+    const todayIsoDateStr = new Date().toISOString().split('T')[0];
 
-    // Prolonged exposure trigger: >= 30 min today, peak > 9 ppm, or cumulative total >= 45 min
-    const isOverExposed = todayTotalDuration >= 30 || totalDuration >= 45 || todayHighRisk || todayPeakPpm > 9.0;
+    const todayRecords = workerRecords.filter((r) => {
+      if (!r) return false;
+      if (r.date === todayDateStr || r.date === todayIsoDateStr) return true;
+      if (r.timestamp && typeof r.timestamp === 'string' && r.timestamp.includes(todayIsoDateStr)) return true;
+      if (r.date) {
+        try {
+          return new Date(r.date).toDateString() === new Date().toDateString();
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    });
+
+    const todayCount = todayRecords.length;
+    const todayTotalDuration = todayRecords.reduce((acc, r) => acc + (r.exposureDurationMinutes || 0), 0);
+    const todayPeakPpm = todayRecords.length > 0 ? Math.max(...todayRecords.map((r) => r.h2sLevelPpm || 0)) : 0;
+
+    const normalMax = thresholds?.normalThreshold ?? 5.0;
+    const highMax = thresholds?.highThreshold ?? 9.0;
+
+    const todayHighRisk = todayRecords.some((r) => r.riskLevel === 'high' || (r.h2sLevelPpm && r.h2sLevelPpm >= highMax));
+    const todayModerate = todayRecords.some((r) => r.riskLevel === 'average' || (r.h2sLevelPpm && r.h2sLevelPpm > normalMax));
+
+    // CRITICAL REQUIREMENT: The evacuation/critical advisory banner must ONLY be shown
+    // when TODAY's daily exposure is actually over safe occupational limits:
+    // 1. Must have actual scans recorded today (todayCount > 0)
+    // 2. AND either:
+    //    a) Acute dangerous gas peak today: >= highThreshold (e.g. >= 9.0 ppm) or 'high' risk
+    //    b) Prolonged moderate gas today: elevated gas (> normalThreshold) for >= 30 min accumulated today
+    //    c) Extended shift exposure today: >= 45 min accumulated today with persistent gas (> normalThreshold)
+    const isOverExposed =
+      todayCount > 0 &&
+      (todayHighRisk ||
+       todayPeakPpm >= highMax ||
+       (todayModerate && todayTotalDuration >= 30) ||
+       (todayTotalDuration >= 45 && todayPeakPpm > normalMax));
 
     const latestExposure = workerRecords[0];
     const latest10 = workerRecords.slice(0, 10);
@@ -190,7 +220,7 @@ export default function DashboardScreen() {
             </View>
 
             <Text style={[styles.evacuationMessage, { color: colors.isDark ? '#FEE2E2' : '#7F1D1D' }]}>
-              You have accumulated <Text style={{ fontWeight: '800' }}>{todayTotalDuration || totalDuration} minutes</Text> of H₂S gas exposure today with a peak reading of <Text style={{ fontWeight: '800' }}>{todayPeakPpm || avgPpm} ppm</Text>. Safe occupational thresholds have been exceeded.
+              You have accumulated <Text style={{ fontWeight: '800' }}>{todayTotalDuration} minutes</Text> of H₂S gas exposure today with a peak reading of <Text style={{ fontWeight: '800' }}>{todayPeakPpm} ppm</Text>. Safe occupational thresholds have been exceeded.
             </Text>
 
             <View style={[styles.evacuationDirectiveBox, { backgroundColor: colors.isDark ? '#451A1E' : '#FEE2E2' }]}>

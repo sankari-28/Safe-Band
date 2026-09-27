@@ -88,6 +88,7 @@ def health_check():
 
 
 @app.get("/")
+@app.get("/api/info")
 def root_info():
     """Root metadata endpoint."""
     return {
