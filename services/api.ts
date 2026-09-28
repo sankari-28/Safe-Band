@@ -491,7 +491,12 @@ export const api = {
   },
 
   // AI Image Analysis (FastAPI AI Microservice + Spring Gateway fallback)
-  async analyzeImage(imageUri: string, workerId: string = 'W001', preloadedBase64?: string | null) {
+  async analyzeImage(
+    imageUri: string,
+    workerId: string = 'W001',
+    preloadedBase64?: string | null,
+    viewfinderRoi?: [number, number, number, number] | null
+  ) {
     try {
       await ensureAuthToken();
     } catch (_) {}
@@ -604,6 +609,8 @@ export const api = {
               image: base64Data,
               workerId: workerId || 'ANONYMOUS',
               fileName: filename,
+              viewfinderRoi: viewfinderRoi || undefined,
+              viewfinder_roi: viewfinderRoi || undefined,
             }),
             signal: controller.signal,
           });
@@ -640,7 +647,10 @@ export const api = {
                 httpMethod: 'POST',
                 uploadType: FileSystem.FileSystemUploadType.MULTIPART,
                 fieldName: 'file',
-                parameters: { workerId: workerId || 'ANONYMOUS' },
+                parameters: {
+                  workerId: workerId || 'ANONYMOUS',
+                  ...(viewfinderRoi ? { viewfinderRoi: JSON.stringify(viewfinderRoi) } : {}),
+                },
                 headers: {
                   'Bypass-Tunnel-Reminder': 'true',
                   ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),

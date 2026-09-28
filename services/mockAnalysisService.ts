@@ -17,7 +17,8 @@ export const runMockExposureAnalysis = async (
   onProgress?: (stepIndex: number) => void,
   imageUri?: string,
   workerId: string = 'W001',
-  preloadedBase64?: string | null
+  preloadedBase64?: string | null,
+  viewfinderRoi?: [number, number, number, number] | null
 ): Promise<ExposureAnalysisResult> => {
   // Step 1
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -49,7 +50,7 @@ export const runMockExposureAnalysis = async (
   let risk = calculateRisk(simulatedPpm);
 
   if (imageUri) {
-    const apiResult = await api.analyzeImage(imageUri, workerId, preloadedBase64);
+    const apiResult = await api.analyzeImage(imageUri, workerId, preloadedBase64, viewfinderRoi);
     if (apiResult) {
       simulatedPpm = apiResult.h2sLevel;
       simulatedDuration = apiResult.exposureDuration;

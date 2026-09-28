@@ -235,13 +235,21 @@ class H2SPredictor:
         disagreement_ppm = round(abs(ppm_ref - rf_ppm), 2)
 
         # Evidence-based prediction confidence:
-        # High when RF and Reference agree, dropping smoothly as discrepancy increases
+        # Combines ML statistical agreement with illumination-invariant chromatic trajectory conformance
         a_model = float(np.exp(-0.5 * (disagreement_ppm / 1.8) ** 2))
         s_chroma = float(np.exp(-0.5 * (d_perp / 3.0) ** 2))
-        pred_conf = float(np.clip(a_model * s_chroma, 0.05, 0.98))
 
-        # RF is the primary statistical estimator as requested; reference provides independent validation
-        final_ppm = rf_ppm
+        # Confidence-weighted dual estimator:
+        # When illumination shift causes RF to diverge from normalized chromatic projection,
+        # blend towards the invariant reference trajectory
+        if disagreement_ppm > 1.2:
+            w_ref = float(np.clip(0.30 + 0.60 * (1.0 - a_model), 0.30, 0.85))
+            w_rf = 1.0 - w_ref
+            final_ppm = round(w_rf * rf_ppm + w_ref * ppm_ref, 2)
+            pred_conf = float(np.clip(0.35 * a_model + 0.65 * s_chroma, 0.70, 0.98))
+        else:
+            final_ppm = round(0.70 * rf_ppm + 0.30 * ppm_ref, 2)
+            pred_conf = float(np.clip(0.50 * a_model + 0.50 * s_chroma, 0.80, 0.98))
 
         # Neutral Risk Classification
         risk_cat, exposure_lvl = map_risk_level_neutral(final_ppm, self.safety_thresholds)
@@ -295,6 +303,7 @@ class H2SPredictor:
         image_input: Union[str, np.ndarray, bytes],
         exposure_time_min: Optional[float] = None,
         manual_roi: Optional[tuple] = None,
+        viewfinder_roi: Optional[tuple] = None,
         use_central_box: bool = True,
         central_box_ratio: float = 0.40,
         require_wristband: bool = True
@@ -303,6 +312,7 @@ class H2SPredictor:
         cv_result = self.processor.process_image(
             image_input,
             manual_roi=manual_roi,
+            viewfinder_roi=viewfinder_roi,
             use_central_box=use_central_box,
             central_box_ratio=central_box_ratio,
             require_wristband=require_wristband

@@ -134,13 +134,15 @@ class StripProcessor:
     def locate_sensor_candidates(
         self,
         image_bgr: np.ndarray,
-        central_box_ratio: float = 0.40
+        central_box_ratio: float = 0.40,
+        viewfinder_roi: Optional[Tuple[float, float, float, float]] = None
     ) -> List[Dict[str, Any]]:
         """Generate and evaluate candidate sensor pad regions across the image.
 
-        Supports low-friction worker scanning:
-        Workers casually point the camera at the wristband. The sensor may be centered,
-        slightly off-center (20-40%), slightly rotated, or surrounded by skin/strap.
+        Supports low-friction worker mobile scanning:
+        Workers point the smartphone camera at the test strip or wristband.
+        Generates vertical strip candidate boxes (aspect 1:2.5 to 1:5.0), square pad boxes,
+        multi-scale center boxes, and contour-segmented rectangular regions.
 
         Returns:
             List of candidate dictionaries ordered by overall confidence score (highest first).
@@ -150,45 +152,79 @@ class StripProcessor:
 
         raw_boxes = []
 
-        # 1. Viewfinder Center Target Boxes (standard worker alignment box + larger contextual window)
+        # 0. UI Viewfinder Target Box if explicitly provided (normalized [x, y, w, h] in 0..1)
+        if viewfinder_roi is not None and len(viewfinder_roi) == 4:
+            vx, vy, vw, vh = viewfinder_roi
+            if all(0.0 <= v <= 1.0 for v in (vx, vy, vw, vh)) and vw > 0.05 and vh > 0.05:
+                px = int(vx * w_img)
+                py = int(vy * h_img)
+                pw = int(vw * w_img)
+                ph = int(vh * h_img)
+                raw_boxes.append((px, py, pw, ph, "ui_viewfinder_target"))
+
+        # 1. Dedicated Mobile-first Viewfinder Vertical Strip Boxes (Centered & Sub-segments)
+        # Matches the vertical test strip / color scale swatch geometry on mobile camera feeds
+        v_strip_configs = [
+            (0.32, 0.70, "viewfinder_vstrip_med", 0.50),
+            (0.22, 0.65, "viewfinder_vstrip_narrow", 0.50),
+            (0.42, 0.75, "viewfinder_vstrip_wide", 0.50),
+            (0.32, 0.42, "viewfinder_vstrip_top", 0.32),
+            (0.32, 0.42, "viewfinder_vstrip_bot", 0.68),
+        ]
+        for rw, rh, tag, center_y_ratio in v_strip_configs:
+            bw = int(w_img * rw)
+            bh = int(h_img * rh)
+            bx = max(0, (w_img - bw) // 2)
+            by = max(0, int(h_img * center_y_ratio - bh // 2))
+            raw_boxes.append((bx, by, bw, bh, tag))
+
+        # 2. Square Pad Viewfinder Box (for wristband sensor pads)
+        side = int(min(w_img, h_img) * 0.42)
+        raw_boxes.append(((w_img - side) // 2, (h_img - side) // 2, side, side, "viewfinder_square_pad"))
+
+        # 3. Standard Multi-scale Viewfinder Center Boxes
         for ratio in [central_box_ratio, 0.55, 0.70]:
             bw = int(w_img * ratio)
             bh = int(h_img * ratio)
             bx = max(0, (w_img - bw) // 2)
             by = max(0, (h_img - bh) // 2)
-            raw_boxes.append((bx, by, bw, bh, "viewfinder_box"))
+            raw_boxes.append((bx, by, bw, bh, "viewfinder_center"))
 
-        # 2. Contour-based candidates: Search for rectangular sensor pads / bezels / strips across the frame
+        # 4. Multi-cue Contours (Canny edges + Adaptive Thresholding for swatches on white paper/screen)
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges1 = cv2.Canny(blurred, 30, 110)
         edges2 = cv2.Canny(blurred, 15, 75)
         edges = cv2.bitwise_or(edges1, edges2)
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Adaptive thresholding extracts rectangular swatches / strips on bright cards/screens
+        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 15, 4)
+        combined_edges = cv2.bitwise_or(edges, thresh)
+
+        contours, _ = cv2.findContours(combined_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         seen_boxes = set()
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            # Sensor pad / strip typically covers 0.3% to 45% of camera image
-            if 0.003 * img_area <= area <= 0.45 * img_area:
+            # Sensor pad / strip typically covers 0.3% to 60% of camera image
+            if 0.003 * img_area <= area <= 0.60 * img_area:
                 x, y, w, h = cv2.boundingRect(cnt)
                 aspect = max(w / max(1, h), h / max(1, w))
-                # Supports square pads (aspect ~ 1.0) and elongated strips (aspect up to 5.5)
-                if aspect <= 5.5:
-                    k = (x // 12, y // 12, w // 12, h // 12)
+                # Supports square pads (aspect ~ 1.0) and elongated strips (aspect up to 6.0)
+                if aspect <= 6.0:
+                    k = (x // 10, y // 10, w // 10, h // 10)
                     if k not in seen_boxes:
                         seen_boxes.add(k)
                         raw_boxes.append((x, y, w, h, "contour"))
 
-        # Deduplicate overlapping boxes
+        # Deduplicate and evaluate candidate boxes
         candidates = []
         for (x, y, w, h, src) in raw_boxes:
-            # Clamp to bounds
             x = max(0, min(x, w_img - 4))
             y = max(0, min(y, h_img - 4))
             w = max(4, min(w, w_img - x))
             h = max(4, min(h, h_img - y))
-            if w < 10 or h < 10:
+            if w < 8 or h < 8:
                 continue
 
             sub_img = image_bgr[y:y + h, x:x + w]
@@ -209,17 +245,22 @@ class StripProcessor:
     ) -> Optional[Dict[str, Any]]:
         """Evaluate a specific candidate image slice for copper acetate sensor characteristics."""
         h, w = sub_img.shape[:2]
-        if h < 8 or w < 8:
+        if h < 6 or w < 6:
             return None
 
-        # Coarse viewfinder boxes spanning both dark bezels/straps and bright pads have massive variance
-        if source == "viewfinder_box":
+        # Coarse viewfinder boxes spanning mixed background/straps/skin have massive variance
+        if source.startswith("viewfinder"):
             sub_gray = cv2.cvtColor(sub_img, cv2.COLOR_BGR2GRAY)
-            if float(np.std(sub_gray)) > 38.0:
+            if float(np.std(sub_gray)) > 45.0:
                 return None
 
+        # Extract core pixels with mild border insetting to remove edge shadows/bezel lines
+        pad_x = max(1, int(w * 0.08))
+        pad_y = max(1, int(h * 0.08))
+        core = sub_img[pad_y:h - pad_y, pad_x:w - pad_x] if (h > 14 and w > 14) else sub_img
+
         # 1. Luminance-aware skin masking (prevent sampling worker hand/wrist tissue)
-        ycrcb = cv2.cvtColor(sub_img, cv2.COLOR_BGR2YCrCb)
+        ycrcb = cv2.cvtColor(core, cv2.COLOR_BGR2YCrCb)
         y_chan = ycrcb[:, :, 0]
         cr_chan = ycrcb[:, :, 1]
         cb_chan = ycrcb[:, :, 2]
@@ -229,12 +270,22 @@ class StripProcessor:
         # 2. Specular glare rejection
         glare_mask = y_chan >= 248
 
-        # 3. Extract non-skin, non-glare target pixels
-        target_mask = (~skin_mask) & (~glare_mask)
-        target_pixels = sub_img[target_mask]
+        # 3. Filter out pure white carrier card background (L >= 225 with neutral chroma)
+        lab_core = cv2.cvtColor(core, cv2.COLOR_BGR2LAB)
+        l_core = lab_core[:, :, 0]
+        white_bg_mask = (l_core >= 228) & (np.abs(lab_core[:, :, 1].astype(int) - 128) < 8) & (np.abs(lab_core[:, :, 2].astype(int) - 128) < 8)
+
+        # 4. Extract non-skin, non-glare, non-carrier-card target pixels
+        target_mask = (~skin_mask) & (~glare_mask) & (~white_bg_mask)
+        target_pixels = core[target_mask]
+
+        if len(target_pixels) < 15:
+            # If strip itself has high L or is full sensor, retry without white filter
+            target_mask = (~skin_mask) & (~glare_mask)
+            target_pixels = core[target_mask]
 
         # If region is > 85% skin and has very few target pixels, reject as skin
-        if len(target_pixels) < 25 or skin_ratio > 0.85:
+        if len(target_pixels) < 15 or skin_ratio > 0.85:
             return {
                 "bbox": bbox,
                 "source": source,
@@ -243,17 +294,18 @@ class StripProcessor:
                 "is_consistent": False,
                 "rejection_reason": "HUMAN_SKIN_REJECTED",
                 "median_lab": (150.0, 140.0, 140.0),
+                "median_rgb": (200.0, 150.0, 130.0),
                 "target_roi": sub_img
             }
 
-        # 4. Extract median color across target pixels
+        # 5. Extract median color across target pixels
         median_bgr = np.median(target_pixels, axis=0).astype(np.uint8)
         median_rgb = (float(median_bgr[2]), float(median_bgr[1]), float(median_bgr[0]))
         pix_1x1 = np.uint8([[median_bgr]])
         lab_color = cv2.cvtColor(pix_1x1, cv2.COLOR_BGR2LAB)[0][0]
         l_obs, a_obs, b_obs = float(lab_color[0]), float(lab_color[1]), float(lab_color[2])
 
-        # Check for carrier card context
+        # Check for carrier card context in surrounding rim
         cx, cy, cw, ch = bbox
         h_full, w_full = full_img.shape[:2]
         margin_y = int(ch * 0.35)
@@ -281,7 +333,7 @@ class StripProcessor:
         else:
             has_carrier_card = False
 
-        # 5. Evaluate color conformance against copper acetate reference progression
+        # 6. Evaluate color conformance against copper acetate reference progression
         ref_eval = self.reference_scale.evaluate_candidate_color(
             (l_obs, a_obs, b_obs),
             candidate_rgb=median_rgb,
@@ -294,19 +346,19 @@ class StripProcessor:
         is_consistent = ref_eval["is_consistent"]
         norm_aspect = max(float(w) / float(max(1, h)), float(h) / float(max(1, w)))
         s_pad = float(np.exp(-0.5 * ((norm_aspect - 1.0) / 0.45) ** 2))
-        s_strip = float(np.exp(-0.5 * ((norm_aspect - 3.0) / 1.30) ** 2))
+        s_strip = float(np.exp(-0.5 * ((norm_aspect - 3.2) / 1.40) ** 2))
         s_geom = max(s_pad, s_strip)
 
         # Center proximity bonus (prioritizes viewfinder center target in camera scanning)
         cdist = np.sqrt(((cx + cw / 2.0) - w_full / 2.0) ** 2 + ((cy + ch / 2.0) - h_full / 2.0) ** 2)
         norm_cdist = cdist / (np.sqrt(w_full ** 2 + h_full ** 2) / 2.0 + 1e-5)
-        s_center = max(0.0, 1.0 - 0.35 * norm_cdist)
+        s_center = max(0.0, 1.0 - 0.30 * norm_cdist)
 
-        contour_bonus = 0.06 if source.startswith("contour") else 0.0
+        src_bonus = 0.12 if ("viewfinder_vstrip" in source or source == "ui_viewfinder_target") else 0.05 if source.startswith("contour") else 0.0
         if is_consistent:
-            score = 0.50 * conf_score + 0.25 * s_geom + 0.15 * s_center + contour_bonus
+            score = 0.50 * conf_score + 0.20 * s_geom + 0.15 * s_center + src_bonus
         else:
-            score = conf_score * 0.20
+            score = conf_score * 0.15
 
         return {
             "bbox": bbox,
@@ -364,9 +416,10 @@ class StripProcessor:
         self,
         image_bgr: np.ndarray,
         manual_roi: Optional[Tuple[int, int, int, int]] = None,
+        viewfinder_roi: Optional[Tuple[float, float, float, float]] = None,
         use_central_box: bool = True,
         central_box_ratio: float = 0.40,
-        inner_crop_pct: float = 0.12
+        inner_crop_pct: float = 0.10
     ) -> Tuple[np.ndarray, Tuple[int, int, int, int], np.ndarray, Dict[str, Any]]:
         """Isolate sensor pad with multi-cue localization and copper acetate reference validation.
 
@@ -380,11 +433,11 @@ class StripProcessor:
         h_img, w_img = image_bgr.shape[:2]
         debug_image = image_bgr.copy()
 
-        # Draw camera viewfinder target box on debug image
-        bw = int(w_img * central_box_ratio)
-        bh = int(h_img * central_box_ratio)
-        bx = (w_img - bw) // 2
-        by = (h_img - bh) // 2
+        # Draw camera viewfinder target box on debug image (mobile-first vertical strip guide)
+        bw = int(w_img * 0.32)
+        bh = int(h_img * 0.70)
+        bx = max(0, (w_img - bw) // 2)
+        by = max(0, (h_img - bh) // 2)
         self._draw_viewfinder_overlay(debug_image, bx, by, bw, bh)
 
         # If manual ROI is provided, use directly
@@ -402,7 +455,11 @@ class StripProcessor:
             }
 
         # Multi-cue candidate generation across the frame
-        candidates = self.locate_sensor_candidates(image_bgr, central_box_ratio=central_box_ratio)
+        candidates = self.locate_sensor_candidates(
+            image_bgr,
+            central_box_ratio=central_box_ratio,
+            viewfinder_roi=viewfinder_roi
+        )
 
         # Evaluate best candidate
         if len(candidates) > 0 and candidates[0]["is_consistent"]:
@@ -475,6 +532,8 @@ class StripProcessor:
             cv2.LINE_AA
         )
 
+        any_ood = any(c.get("ref_eval", {}).get("is_out_of_distribution", False) for c in candidates) if len(candidates) > 0 else True
+        max_ood_dist = max([c.get("ref_eval", {}).get("ood_distance", 0.0) for c in candidates] + [9.9]) if len(candidates) > 0 else 9.9
         detection_meta = {
             "sensor_detected": False,
             "sensor_confidence": round(best_conf, 3),
@@ -485,8 +544,8 @@ class StripProcessor:
             "ref_eval": candidates[0].get("ref_eval", {}) if len(candidates) > 0 else {},
             "ppm_ref": None,
             "expected_L": None,
-            "is_out_of_distribution": candidates[0].get("ref_eval", {}).get("is_out_of_distribution", True) if len(candidates) > 0 else True,
-            "ood_distance": candidates[0].get("ref_eval", {}).get("ood_distance", 9.9) if len(candidates) > 0 else 9.9,
+            "is_out_of_distribution": any_ood,
+            "ood_distance": max_ood_dist if any_ood else (candidates[0].get("ref_eval", {}).get("ood_distance", 0.0) if len(candidates) > 0 else 9.9),
             "ood_threshold": self.reference_scale.ood_threshold,
             "norm_rgb": candidates[0].get("ref_eval", {}).get("norm_rgb", (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)) if len(candidates) > 0 else (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
         }
@@ -590,6 +649,7 @@ class StripProcessor:
         self,
         image_input: Union[str, np.ndarray, bytes],
         manual_roi: Optional[Tuple[int, int, int, int]] = None,
+        viewfinder_roi: Optional[Tuple[float, float, float, float]] = None,
         use_central_box: bool = True,
         central_box_ratio: float = 0.40,
         require_wristband: bool = True
@@ -604,6 +664,7 @@ class StripProcessor:
         roi_norm, bbox, debug_image, detection_meta = self.detect_strip_roi(
             image_bgr,
             manual_roi=manual_roi,
+            viewfinder_roi=viewfinder_roi,
             use_central_box=use_central_box,
             central_box_ratio=central_box_ratio
         )

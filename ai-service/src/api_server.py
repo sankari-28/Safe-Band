@@ -115,6 +115,8 @@ class Base64AnalysisPayload(BaseModel):
     exposure_time: Optional[float] = None
     requireWristband: Optional[bool] = False
     fileName: Optional[str] = "photo.jpg"
+    viewfinderRoi: Optional[list] = None
+    viewfinder_roi: Optional[list] = None
 
 
 def execute_image_analysis(
@@ -123,7 +125,8 @@ def execute_image_analysis(
     content_type: str = "image/jpeg",
     actual_worker_id: str = "ANONYMOUS",
     actual_exposure_time: Optional[float] = None,
-    require_wristband: bool = False
+    require_wristband: bool = False,
+    viewfinder_roi: Optional[tuple] = None
 ) -> dict:
     import traceback
     if predictor is None:
@@ -136,7 +139,8 @@ def execute_image_analysis(
         result = predictor.predict_image(
             contents,
             exposure_time_min=actual_exposure_time,
-            require_wristband=require_wristband
+            require_wristband=require_wristband,
+            viewfinder_roi=viewfinder_roi
         )
     except Exception as e:
         traceback.print_exc()
@@ -285,13 +289,15 @@ async def analyze_base64_endpoint(payload: Base64AnalysisPayload):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid base64 encoding: {e}")
 
+    vf_roi = payload.viewfinderRoi or payload.viewfinder_roi
     result_dict = execute_image_analysis(
         contents=contents,
         filename=payload.fileName or "photo.jpg",
         content_type="image/jpeg",
         actual_worker_id=payload.worker_id or payload.workerId or "ANONYMOUS",
         actual_exposure_time=payload.exposure_time or payload.exposureTimeMin,
-        require_wristband=bool(payload.requireWristband)
+        require_wristband=bool(payload.requireWristband),
+        viewfinder_roi=tuple(vf_roi) if (vf_roi and len(vf_roi) == 4) else None
     )
     return JSONResponse(content=result_dict)
 
@@ -323,13 +329,15 @@ async def analyze_image_endpoint(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid base64: {e}")
 
+        vf_roi = body.get("viewfinderRoi") or body.get("viewfinder_roi")
         result_dict = execute_image_analysis(
             contents=contents,
             filename=body.get("fileName", "photo.jpg"),
             content_type="image/jpeg",
             actual_worker_id=body.get("worker_id") or body.get("workerId") or "ANONYMOUS",
             actual_exposure_time=body.get("exposure_time") or body.get("exposureTimeMin"),
-            require_wristband=bool(body.get("requireWristband", False))
+            require_wristband=bool(body.get("requireWristband", False)),
+            viewfinder_roi=tuple(vf_roi) if (vf_roi and len(vf_roi) == 4) else None
         )
         return JSONResponse(content=result_dict)
 

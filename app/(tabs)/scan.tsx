@@ -24,6 +24,7 @@ export default function ScanScreen() {
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedBase64, setSelectedBase64] = useState<string | null>(null);
+  const [selectedRoi, setSelectedRoi] = useState<[number, number, number, number] | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [showCameraModal, setShowCameraModal] = useState(false);
 
@@ -51,6 +52,7 @@ export default function ScanScreen() {
           const asset = result.assets[0];
           setSelectedImage(asset.uri);
           setSelectedBase64(asset.base64 || null);
+          setSelectedRoi(null);
         }
       } catch (err) {
         setErrorMessage('Camera access failed or is unsupported on this platform.');
@@ -90,6 +92,7 @@ export default function ScanScreen() {
 
         setSelectedImage(uri);
         setSelectedBase64(asset.base64 || null);
+        setSelectedRoi(null);
       }
     } catch (err) {
       setErrorMessage('Unable to open file picker on this device/browser.');
@@ -119,7 +122,8 @@ export default function ScanScreen() {
         (stepIndex) => setActiveStepIndex(stepIndex),
         selectedImage,
         workerId,
-        selectedBase64
+        selectedBase64,
+        selectedRoi
       );
 
       // If AI detects missing wristband, empty background, or glare requiring retake
@@ -173,12 +177,14 @@ export default function ScanScreen() {
         {/* Live Camera Viewfinder & Alignment HUD */}
         <LiveCameraViewfinder
           selectedImage={selectedImage}
-          onImageCaptured={(uri) => {
+          onImageCaptured={(uri, roi) => {
             setSelectedImage(uri);
+            setSelectedRoi(roi || null);
             setErrorMessage('');
           }}
           onClearImage={() => {
             setSelectedImage(null);
+            setSelectedRoi(null);
             setErrorMessage('');
           }}
           onRequestNativeCamera={() => setShowCameraModal(true)}
@@ -347,9 +353,10 @@ export default function ScanScreen() {
       <CameraModal
         visible={showCameraModal}
         onClose={() => setShowCameraModal(false)}
-        onPictureTaken={(uri, b64) => {
+        onPictureTaken={(uri, b64, roi) => {
           setSelectedImage(uri);
           setSelectedBase64(b64 || null);
+          setSelectedRoi(roi || null);
         }}
         onPermissionDenied={() => {
           setShowCameraModal(false);

@@ -421,35 +421,39 @@ class CopperAcetateReferenceScale:
         s_chroma = float(np.exp(-0.5 * (d_perp / 5.0) ** 2))
 
         # 2. Geometric Evidence Score: Dual form factors
-        # Supports square/circular sensor pads (aspect ~ 1.0) and elongated chemical test strips (aspect ~ 3.0)
+        # Supports square/circular sensor pads (aspect ~ 1.0) and elongated chemical test strips (aspect ~ 1.5 to 5.0)
         if bbox is not None and bbox[2] > 0 and bbox[3] > 0:
             w, h = bbox[2], bbox[3]
             norm_aspect = max(float(w) / float(max(1, h)), float(h) / float(max(1, w)))
             s_pad = float(np.exp(-0.5 * ((norm_aspect - 1.0) / 0.45) ** 2))
-            s_strip = float(np.exp(-0.5 * ((norm_aspect - 3.0) / 1.30) ** 2))
+            s_strip = float(np.exp(-0.5 * ((norm_aspect - 2.8) / 1.45) ** 2))
             s_geom = max(s_pad, s_strip)
         else:
             s_geom = 0.90
 
         # 3. Carrier Contrast Evidence
-        # Valid copper acetate sensors (L >= 38 in all calibration and moderate shadow) are self-contrasting
-        # Highly darkened / saturated sensors (L < 38) must have warm brown CuS hue (R > B + 3.0) and high contrast against white carrier paper
-        is_copper_brown = (candidate_rgb is not None) and (candidate_rgb[0] > candidate_rgb[2] + 3.0)
-        is_chemical_saturation = (25.0 <= l_obs <= 38.0) and has_carrier_card and (not is_ood) and is_copper_brown
-        if l_obs < 38.0:
+        # Valid copper acetate sensors (L >= 42 in all calibration and moderate shadow) are self-contrasting
+        # Highly darkened / saturated sensors (L < 42) must have distinct warm brown CuS hue (R >= B + 6.0, b* >= 131.0 or a* >= 129.5)
+        # Neutral dark objects (gray/black wallet, phone case, dark clothing) have R ~ B and a* ~ b* ~ 128
+        is_copper_brown = (
+            (candidate_rgb is not None) and
+            (candidate_rgb[0] >= candidate_rgb[2] + 6.0) and
+            (b_obs >= 131.0 or a_obs >= 129.5)
+        )
+        is_chemical_saturation = (25.0 <= l_obs <= 42.0) and has_carrier_card and (not is_ood) and is_copper_brown
+        if l_obs < 42.0:
             if has_carrier_card and is_copper_brown:
                 contrast = (surround_l - l_obs) / max(1.0, surround_l + l_obs)
                 s_carrier = float(np.clip(contrast / 0.50, 0.40, 1.0))
             else:
-                # Dark watch dial, black silicone band on skin, or cold dark gray object has no copper-acetate CuS signature
-                s_carrier = 0.08
-        elif l_obs < 48.0:
-            # Moderately dark objects (e.g. phone case, wallet, dark leather):
-            # Check for neutral achromatic gray (rn ~ gn ~ bn ~ 0.33) without carrier context
+                # Dark watch dial, bezel, black silicone band, neutral gray wallet
+                s_carrier = 0.04
+        elif l_obs < 58.0:
+            # Moderately dark objects:
             if candidate_rgb is not None:
                 rn, gn, bn = compute_normalized_rgb(*candidate_rgb)
-                is_achromatic = (rn <= bn + 0.03) and abs(gn - 1.0 / 3.0) < 0.03
-                s_carrier = 0.08 if (is_achromatic and not has_carrier_card) else 0.95
+                is_cold_dark = (rn <= bn + 0.02) or (b_obs < 130.0 and a_obs < 129.0)
+                s_carrier = 0.04 if (is_cold_dark and not has_carrier_card) else 0.95
             else:
                 s_carrier = 0.95
         else:

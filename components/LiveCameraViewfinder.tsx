@@ -5,10 +5,12 @@ import { useTheme } from '../context/ThemeContext';
 
 interface LiveCameraViewfinderProps {
   selectedImage: string | null;
-  onImageCaptured: (imageUri: string) => void;
+  onImageCaptured: (imageUri: string, viewfinderRoi?: [number, number, number, number]) => void;
   onClearImage: () => void;
   onRequestNativeCamera?: () => void;
 }
+
+export type ViewfinderMode = 'strip' | 'pad';
 
 export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
   selectedImage,
@@ -20,7 +22,8 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingCamera, setIsLoadingCamera] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [viewfinderMode, setViewfinderMode] = useState<ViewfinderMode>('strip');
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -54,11 +57,12 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
         throw new Error('Camera streaming is not supported in this browser environment.');
       }
 
-      // Try progressive fallback constraints for desktop / laptop webcams
+      // Mobile first: prioritize environment (rear) camera with portrait or HD resolution
       const attemptConstraints: MediaStreamConstraints[] = [
+        { video: { facingMode: { ideal: facing }, width: { ideal: 1080 }, height: { ideal: 1920 } } },
         { video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } } },
-        { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } },
-        { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { facingMode: 'environment' } },
+        { video: { facingMode: 'user' } },
         { video: true },
       ];
 
@@ -90,13 +94,13 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
       onClearImage();
     } catch (err: any) {
       console.error('Webcam access error:', err);
-      let msg = 'Could not access webcam.';
+      let msg = 'Could not access camera.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         msg = 'PERMISSION_DENIED';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         msg = 'No camera hardware detected on this device.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Camera is already in use by another application (e.g. Teams, Zoom, or another tab).';
+        msg = 'Camera is in use by another application or browser tab.';
       } else if (err.message) {
         msg = err.message;
       }
@@ -123,8 +127,8 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
     const video = videoRef.current;
 
     const canvas = document.createElement('canvas');
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+    const width = video.videoWidth || 1080;
+    const height = video.videoHeight || 1920;
     canvas.width = width;
     canvas.height = height;
 
@@ -140,9 +144,28 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
     ctx.drawImage(video, 0, 0, width, height);
     ctx.restore();
 
-    // High-quality JPEG data URL
+    // Calculate exact normalized ROI box reflecting what the user aligned on mobile
+    let normalizedRoi: [number, number, number, number];
+    if (viewfinderMode === 'strip') {
+      // Centered vertical strip box: ~34% width, ~72% height
+      const roiW = 0.34;
+      const roiH = 0.72;
+      const roiX = (1.0 - roiW) / 2.0;
+      const roiY = (1.0 - roiH) / 2.0;
+      normalizedRoi = [roiX, roiY, roiW, roiH];
+    } else {
+      // Centered square pad box: ~50% of min dimension
+      const minDim = Math.min(width, height);
+      const roiPx = minDim * 0.48;
+      const roiX = (width - roiPx) / (2.0 * width);
+      const roiY = (height - roiPx) / (2.0 * height);
+      const roiW = roiPx / width;
+      const roiH = roiPx / height;
+      normalizedRoi = [roiX, roiY, roiW, roiH];
+    }
+
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    onImageCaptured(dataUrl);
+    onImageCaptured(dataUrl, normalizedRoi);
 
     stopWebcam();
   };
@@ -153,9 +176,11 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
     startWebcam(nextMode);
   };
 
+  const activeNeonColor = isStreaming ? '#2ED573' : colors.primaryOrange;
+
   return (
     <View style={[styles.container, { backgroundColor: '#0B1120', borderColor: colors.border }]}>
-      {/* Header telemetry badge */}
+      {/* Header Bar */}
       <View style={styles.headerRow}>
         <View style={styles.liveIndicator}>
           <View
@@ -172,11 +197,40 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
           />
           <Text style={styles.liveText}>
             {isStreaming
-              ? 'LIVE WEBCAM ACTIVE'
+              ? 'LIVE CAMERA ACTIVE'
               : selectedImage
-              ? 'SNAPSHOT READY'
+              ? 'SNAPSHOT CAPTURED'
               : 'CAMERA STANDBY'}
           </Text>
+        </View>
+
+        {/* Viewfinder Target Mode Selector */}
+        <View style={styles.modeSelector}>
+          <TouchableOpacity
+            style={[
+              styles.modeTab,
+              viewfinderMode === 'strip' && [styles.modeTabActive, { backgroundColor: colors.primaryOrange }],
+            ]}
+            onPress={() => setViewfinderMode('strip')}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.modeTabText, viewfinderMode === 'strip' && styles.modeTabTextActive]}>
+              Vertical Strip
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.modeTab,
+              viewfinderMode === 'pad' && [styles.modeTabActive, { backgroundColor: colors.primaryOrange }],
+            ]}
+            onPress={() => setViewfinderMode('pad')}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.modeTabText, viewfinderMode === 'pad' && styles.modeTabTextActive]}>
+              Square Pad
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {isStreaming && (
@@ -191,7 +245,7 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
         )}
       </View>
 
-      {/* Main Viewport */}
+      {/* Main Viewport Container */}
       <View style={styles.viewport}>
         {/* Live HTML5 Video Feed on Web */}
         {Platform.OS === 'web' && (
@@ -205,7 +259,7 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
               height: '100%',
               objectFit: 'cover',
               display: isStreaming ? 'block' : 'none',
-              borderRadius: 16,
+              borderRadius: 18,
               transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
             }}
           />
@@ -213,77 +267,83 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
 
         {/* Static Snapshot Preview if Captured */}
         {selectedImage && !isStreaming ? (
-          <Image source={{ uri: selectedImage }} style={styles.capturedImage} resizeMode="cover" />
+          <Image source={{ uri: selectedImage }} style={styles.capturedImage} resizeMode="contain" />
         ) : null}
 
         {/* Loading Spinner */}
         {isLoadingCamera && (
           <View style={styles.centeredOverlay}>
             <ActivityIndicator size="large" color={colors.primaryOrange} />
-            <Text style={styles.loadingText}>Initializing camera module...</Text>
+            <Text style={styles.loadingText}>Connecting to device camera...</Text>
           </View>
         )}
 
         {/* Empty Standby State */}
         {!selectedImage && !isStreaming && !isLoadingCamera && (
           <View style={styles.standbyContent}>
-            <Camera size={44} color="rgba(255,255,255,0.4)" />
-            <Text style={styles.standbyTitle}>Camera Viewfinder</Text>
+            <View style={[styles.standbyIconCircle, { backgroundColor: 'rgba(232, 138, 61, 0.15)' }]}>
+              <Camera size={38} color={colors.primaryOrange} />
+            </View>
+            <Text style={styles.standbyTitle}>Mobile Camera Viewfinder</Text>
             <Text style={styles.standbySub}>
-              Start your device camera or upload a strip photograph to analyze H₂S concentration
+              Align your test strip or wristband sensing pad inside the guide box for instant AI exposure reading
             </Text>
           </View>
         )}
 
-        {/* OpenCV HUD Target Alignment Reticle Overlay */}
+        {/* Mobile Viewfinder Target Alignment Reticle */}
         {(isStreaming || selectedImage) && (
           <View style={styles.hudOverlay} pointerEvents="none">
-            {/* Outer Frame Corner Brackets */}
-            <View style={[styles.corner, styles.cornerTL, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerTR, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerBL, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-            <View style={[styles.corner, styles.cornerBR, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
+            {/* Outer Darkened Vignette */}
+            <View style={styles.vignetteTop} />
+            <View style={styles.vignetteBottom} />
+            <View style={styles.vignetteLeft} />
+            <View style={styles.vignetteRight} />
 
             {/* Centered Target Box */}
-            <View style={[styles.centerReticleBox, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]}>
-              <View style={[styles.innerReticleCorner, styles.innerReticleTL, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-              <View style={[styles.innerReticleCorner, styles.innerReticleTR, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-              <View style={[styles.innerReticleCorner, styles.innerReticleBL, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-              <View style={[styles.innerReticleCorner, styles.innerReticleBR, { borderColor: isStreaming ? '#2ED573' : colors.primaryOrange }]} />
-              
-              <View style={[styles.reticleBadge, { backgroundColor: isStreaming ? 'rgba(46, 213, 115, 0.25)' : 'rgba(232, 138, 61, 0.25)' }]}>
-                <Text style={[styles.reticleText, { color: isStreaming ? '#2ED573' : colors.primaryOrange }]}>
-                  🎯 ALIGN WRISTBAND HERE
+            <View
+              style={[
+                viewfinderMode === 'strip' ? styles.targetStripBox : styles.targetPadBox,
+                { borderColor: activeNeonColor },
+              ]}
+            >
+              {/* Corner Brackets */}
+              <View style={[styles.bracket, styles.bracketTL, { borderColor: activeNeonColor }]} />
+              <View style={[styles.bracket, styles.bracketTR, { borderColor: activeNeonColor }]} />
+              <View style={[styles.bracket, styles.bracketBL, { borderColor: activeNeonColor }]} />
+              <View style={[styles.bracket, styles.bracketBR, { borderColor: activeNeonColor }]} />
+
+              {/* Center Alignment Axis Guidelines */}
+              <View style={[styles.axisH, { backgroundColor: activeNeonColor }]} />
+              <View style={[styles.axisV, { backgroundColor: activeNeonColor }]} />
+
+              {/* Reticle Target Badge */}
+              <View style={[styles.reticleBadge, { backgroundColor: isStreaming ? 'rgba(46, 213, 115, 0.28)' : 'rgba(232, 138, 61, 0.28)' }]}>
+                <Text style={[styles.reticleText, { color: activeNeonColor }]}>
+                  {viewfinderMode === 'strip' ? '🎯 ALIGN STRIP HERE' : '🎯 ALIGN PAD HERE'}
                 </Text>
-                <Text style={styles.reticleSub}>Keep reactive sensing pad inside this box</Text>
+                <Text style={styles.reticleSub}>
+                  {viewfinderMode === 'strip'
+                    ? 'Center vertical sensing strip inside frame'
+                    : 'Center sensing pad inside box'}
+                </Text>
               </View>
             </View>
           </View>
         )}
       </View>
 
-      {/* Camera Error / Permission Guide */}
+      {/* Camera Error / Permission Banner */}
       {cameraError && (
         <View style={styles.errorContainer}>
           <AlertTriangle size={18} color="#FF4757" style={{ marginTop: 2 }} />
           <View style={{ flex: 1 }}>
             {cameraError === 'PERMISSION_DENIED' ? (
               <View>
-                <Text style={styles.errorHeader}>Camera Permission Blocked in Browser</Text>
-                <Text style={styles.errorSubText}>To activate your live camera:</Text>
-                <Text style={styles.errorStep}>
-                  1. Look at the right end of your browser's address bar (next to the bookmark/star icon).
-                </Text>
-                <Text style={styles.errorStep}>
-                  2. Click the <Text style={{ fontWeight: '700', color: '#FF4757' }}>crossed-out camera icon 📷</Text>.
-                </Text>
-                <Text style={styles.errorStep}>
-                  3. Choose <Text style={{ fontWeight: '700', color: '#2ED573' }}>"Always allow http://localhost:8088 to access your camera"</Text> and click Done.
-                </Text>
-                <Text style={styles.errorStep}>
-                  4. Click the <Text style={{ fontWeight: '700' }}>"Try Camera Again"</Text> button below.
-                </Text>
-
+                <Text style={styles.errorHeader}>Camera Permission Needed</Text>
+                <Text style={styles.errorSubText}>To activate your camera in browser:</Text>
+                <Text style={styles.errorStep}>1. Click the lock/camera icon in your address bar.</Text>
+                <Text style={styles.errorStep}>2. Allow camera access for this site.</Text>
                 <TouchableOpacity
                   style={styles.retryPermBtn}
                   onPress={() => startWebcam()}
@@ -300,7 +360,7 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
         </View>
       )}
 
-      {/* Interactive Quick Bar Under Viewport */}
+      {/* Quick Action Control Bar Under Viewport */}
       <View style={styles.actionRow}>
         {!isStreaming && !selectedImage && (
           <TouchableOpacity
@@ -319,7 +379,7 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
             onPress={captureSnapshot}
             activeOpacity={0.8}
           >
-            <Camera size={20} color="#FFFFFF" />
+            <Camera size={20} color="#0B1120" />
             <Text style={[styles.primaryActionBtnText, { color: '#0B1120', fontWeight: '800' }]}>
               Capture Snapshot
             </Text>
@@ -330,14 +390,14 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
           <View style={styles.retakeRow}>
             <View style={styles.snapshotSuccessTag}>
               <CheckCircle2 size={16} color="#2ED573" />
-              <Text style={styles.snapshotSuccessText}>Photo captured and ready</Text>
+              <Text style={styles.snapshotSuccessText}>Photo ready for AI analysis</Text>
             </View>
             <TouchableOpacity
               style={[styles.retakeBtn, { borderColor: colors.border, backgroundColor: colors.secondaryBg }]}
               onPress={() => startWebcam()}
               activeOpacity={0.7}
             >
-              <RefreshCw size={15} color={colors.primaryOrange} />
+              <RefreshCw size={14} color={colors.primaryOrange} />
               <Text style={[styles.retakeBtnText, { color: colors.primaryText }]}>Retake Photo</Text>
             </TouchableOpacity>
           </View>
@@ -349,9 +409,9 @@ export const LiveCameraViewfinder: React.FC<LiveCameraViewfinderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 24,
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 16,
+    padding: 14,
     marginBottom: 16,
     overflow: 'hidden',
   },
@@ -359,12 +419,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   liveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   liveDot: {
     width: 8,
@@ -373,13 +435,39 @@ const styles = StyleSheet.create({
   },
   liveText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+  },
+  modeSelector: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    padding: 2,
+    gap: 2,
+  },
+  modeTab: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  modeTabActive: {
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  modeTabText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  modeTabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   streamControls: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   iconBtn: {
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -388,11 +476,11 @@ const styles = StyleSheet.create({
   },
   viewport: {
     width: '100%',
-    height: Platform.OS === 'web' ? 520 : 380,
-    borderRadius: 22,
+    height: Platform.OS === 'web' ? 440 : 380,
+    borderRadius: 18,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.15)',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     position: 'relative',
     overflow: 'hidden',
     justifyContent: 'center',
@@ -402,176 +490,212 @@ const styles = StyleSheet.create({
     ...(StyleSheet.absoluteFill as any),
     width: '100%',
     height: '100%',
-    borderRadius: 20,
+    borderRadius: 16,
   },
   centeredOverlay: {
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   loadingText: {
     color: '#E2E8F0',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   standbyContent: {
     alignItems: 'center',
-    paddingHorizontal: 24,
-    gap: 12,
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  standbyIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
   },
   standbyTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
-    marginTop: 4,
   },
   standbySub: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
-    lineHeight: 20,
-    maxWidth: 380,
+    lineHeight: 18,
+    maxWidth: 320,
   },
   hudOverlay: {
     ...(StyleSheet.absoluteFill as any),
     justifyContent: 'center',
     alignItems: 'center',
   },
-  corner: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    zIndex: 10,
-  },
-  cornerTL: {
-    top: 14,
-    left: 14,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-  },
-  cornerTR: {
-    top: 14,
-    right: 14,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-  },
-  cornerBL: {
-    bottom: 14,
-    left: 14,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-  },
-  cornerBR: {
-    bottom: 14,
-    right: 14,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-  },
-  centerReticleBox: {
-    width: '65%',
-    maxWidth: 540,
-    minWidth: 320,
-    height: '68%',
-    maxHeight: 350,
-    minHeight: 250,
-    borderWidth: 2.5,
+  targetStripBox: {
+    width: '42%',
+    maxWidth: 220,
+    minWidth: 140,
+    height: '74%',
+    maxHeight: 320,
+    minHeight: 220,
+    borderWidth: 2,
     borderStyle: 'dashed',
-    borderRadius: 20,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
   },
-  innerReticleCorner: {
+  targetPadBox: {
+    width: '58%',
+    maxWidth: 260,
+    minWidth: 180,
+    height: '58%',
+    maxHeight: 260,
+    minHeight: 180,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  bracket: {
     position: 'absolute',
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
   },
-  innerReticleTL: {
+  bracketTL: {
     top: -2,
     left: -2,
     borderTopWidth: 3.5,
     borderLeftWidth: 3.5,
   },
-  innerReticleTR: {
+  bracketTR: {
     top: -2,
     right: -2,
     borderTopWidth: 3.5,
     borderRightWidth: 3.5,
   },
-  innerReticleBL: {
+  bracketBL: {
     bottom: -2,
     left: -2,
     borderBottomWidth: 3.5,
     borderLeftWidth: 3.5,
   },
-  innerReticleBR: {
+  bracketBR: {
     bottom: -2,
     right: -2,
     borderBottomWidth: 3.5,
     borderRightWidth: 3.5,
+  },
+  axisH: {
+    position: 'absolute',
+    width: 14,
+    height: 1.5,
+    opacity: 0.6,
+  },
+  axisV: {
+    position: 'absolute',
+    width: 1.5,
+    height: 14,
+    opacity: 0.6,
   },
   reticleBadge: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   reticleText: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
   reticleSub: {
     color: '#E2E8F0',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 10,
+    marginTop: 2,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  vignetteTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 14,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  vignetteBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 14,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  vignetteLeft: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 14,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  vignetteRight: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 14,
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
     backgroundColor: 'rgba(255, 71, 87, 0.12)',
-    padding: 14,
+    padding: 12,
     borderRadius: 12,
-    marginTop: 12,
+    marginTop: 10,
     borderWidth: 1,
     borderColor: 'rgba(255, 71, 87, 0.3)',
   },
   errorHeader: {
     color: '#FF4757',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   errorSubText: {
     color: '#E2E8F0',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   errorStep: {
     color: '#CBD5E1',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 16,
   },
   retryPermBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     backgroundColor: '#E88A3D',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
     alignSelf: 'flex-start',
-    marginTop: 12,
+    marginTop: 8,
   },
   retryPermBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   errorText: {
@@ -581,7 +705,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionRow: {
-    marginTop: 14,
+    marginTop: 12,
   },
   primaryActionBtn: {
     flexDirection: 'row',
@@ -589,7 +713,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 12,
-    borderRadius: 14,
+    borderRadius: 12,
   },
   primaryActionBtnText: {
     color: '#FFFFFF',
@@ -608,20 +732,20 @@ const styles = StyleSheet.create({
   },
   snapshotSuccessText: {
     color: '#2ED573',
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
   },
   retakeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
     borderWidth: 1,
   },
   retakeBtnText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
   },
 });
